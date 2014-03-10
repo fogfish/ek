@@ -1,0 +1,17 @@
+{application, ek,
+   [
+      {description, "erlang kluster"},
+      {vsn,         "0.0.0"},
+      {modules,     [
+         ek_ring_sup
+      ]},
+      {registered,  []},
+      {applications,[
+         kernel
+        ,stdlib
+      ]},
+      {mod, {ek_app, []}},
+      {env, []}
+   ]
+}.  
+
