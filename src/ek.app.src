@@ -1,7 +1,7 @@
 {application, ek,
    [
       {description, "erlang kluster"},
-      {vsn,         "0.0.0"},
+      {vsn,         "0.1.0"},
       {modules,     [
          ek_ring_sup
       ]},
@@ -9,6 +9,7 @@
       {applications,[
          kernel
         ,stdlib
+        ,sasl
       ]},
       {mod, {ek_app, []}},
       {env, []}

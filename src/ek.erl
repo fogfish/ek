@@ -20,6 +20,10 @@
 
 -export([start/0]).
 -export([
+   seed/1
+  ,seed/2
+]).
+-export([
    pg/1
   ,peers/1 
   ,members/1
@@ -32,8 +36,20 @@
 %%
 %% start application
 start() ->
+   error_logger:tty(false),
+   application:start(sasl),
    application:start(ek).
 
+%%
+%% seed cluster nodes
+-spec(seed/1 :: ([node()]) -> {ok, pid()} | {error, any()}).
+-spec(seed/2 :: ([node()], timeout()) -> {ok, pid()} | {error, any()}).
+
+seed(Seed) ->
+   seed(Seed, ?CONFIG_SEED_INTERVAL).
+
+seed(Seed, Timeout) ->
+   ek_sup:start_child(worker, erlang:make_ref(), ek_seed, [Seed, Timeout]).
 
 %%
 %% create process group topology
@@ -48,14 +64,14 @@ pg(Name) ->
    end.
 
 %%
-%% list topology peers
+%% list topology peers (nodes)
 -spec(peers/1 :: (atom()) -> [node()]).
 
 peers(Name) -> 
    gen_server:call(Name, peers).
 
 %%
-%% list topology members
+%% list all topology members (processes)
 -spec(members/1 :: (atom()) -> [pid()]).
 
 members(Name) ->
@@ -81,5 +97,6 @@ leave(Name) ->
    leave(Name, self()).
 leave(Name, Pid) ->
    gen_server:call(Name, {leave, Pid}).
+
 
 

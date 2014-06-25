@@ -15,6 +15,10 @@
 %%
 %-define(CONFIG_DEBUG, true).
 
+%% default seed timeout
+-define(CONFIG_SEED_INTERVAL,  60000).
+
+
 -ifdef(CONFIG_DEBUG).
    -define(DEBUG(Str, Args), error_logger:error_msg(Str, Args)).
 -else.

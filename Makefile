@@ -32,7 +32,7 @@ EFLAGS = \
 	-kernel inet_dist_listen_min 32100 \
 	-kernel inet_dist_listen_max 32199 \
 	+P 1000000 \
-	+K true +A 160 -sbt ts
+	+K true +A 160 -sbt ts 
 
 ## application release
 ifeq ($(wildcard rel/reltool.config),) 
