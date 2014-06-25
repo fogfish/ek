@@ -29,6 +29,7 @@
   ,members/1
   ,join/1
   ,join/2
+  ,join/3
   ,leave/1
   ,leave/2
 ]).
@@ -82,11 +83,14 @@ members(Name) ->
 %% join topology
 -spec(join/1 :: (atom()) -> ok | {error, any()}).
 -spec(join/2 :: (atom(), pid()) -> ok | {error, any()}).
+-spec(join/3 :: (atom(), term(), pid()) -> ok | {error, any()}).
 
 join(Name) ->
-   join(Name, self()).
-join(Name, Proc) ->
-   gen_server:call(Name, {join, Proc}).
+   join(Name, undefined, self()).
+join(Name, Pid) ->
+   join(Name, undefined, Pid).
+join(Name, Id, Pid) ->
+   gen_server:call(Name, {join, Id, Pid}).
 
 %%
 %% leave topology

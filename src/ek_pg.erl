@@ -14,7 +14,7 @@
 %%   limitations under the License.
 %%
 %% @description
-%%  process group topology observes changes and notifies local processes
+%%   process group topology observes changes and notifies local processes
 -module(ek_pg).
 -behaviour(gen_server).
 -include("ek.hrl").
@@ -71,105 +71,104 @@ terminate(_, _S) ->
 
 %%
 %%
-handle_call({join, Pid}, _, #srv{}=S) ->
+handle_call({join, Id, Pid}, _, #srv{}=State) ->
    % join the process if it is not known to group
-   case dict:find(Pid, S#srv.local) of
+   case dict:find(Pid, State#srv.local) of
       error      ->
-         {reply, ok, join_local_process(Pid, S)};
+         {reply, ok, join_local_process(Id, Pid, State)};
       {ok, _Ref} ->
-         {reply, ok, S}
+         {reply, ok, State}
    end;
 
-handle_call({leave, Pid}, _, #srv{}=S) ->
+handle_call({leave, Pid}, _, #srv{}=State) ->
    % leave process if it is know to group
-   case dict:find(Pid, S#srv.local) of
+   case dict:find(Pid, State#srv.local) of
       error     ->
-         {reply, ok, S};         
+         {reply, ok, State};         
       {ok, Ref} ->
-         {reply, ok, leave_local_process(Pid, Ref, S)}
+         {reply, ok, leave_local_process(Pid, Ref, State)}
    end;
 
-handle_call(peers, _Tx, #srv{}=S) ->
-   % list all remote peers
-   {reply, [Peer || {Peer, _} <- dict:to_list(S#srv.peer)], S};
+handle_call(peers, _Tx, #srv{}=State) ->
+   % list all remote peers (nodes)
+   {reply, [Peer || {Peer, _} <- dict:to_list(State#srv.peer)], State};
 
-handle_call(members, _Tx, #srv{}=S) ->
-   % list all group members
-   L =  [Pid || {Pid, _} <- dict:to_list(S#srv.local)],
-   R =  [Pid || {Pid, _} <- dict:to_list(S#srv.remote)],
-   {reply, L ++ R, S};
+handle_call(members, _Tx, #srv{}=State) ->
+   % list all group members (processes)
+   L =  [Pid || {Pid, _} <- dict:to_list(State#srv.local)],
+   R =  [Pid || {Pid, _} <- dict:to_list(State#srv.remote)],
+   {reply, L ++ R, State};
 
-
-handle_call(Msg, Tx, S) ->
-   unexpected_msg(Msg, Tx, S),
-   {noreply, S}.
-
-%%
-%%
-handle_cast(Msg, S) ->
-   unexpected_msg(Msg, S),
-   {noreply, S}.
+handle_call(Msg, Tx, State) ->
+   unexpected_msg(Msg, Tx, State),
+   {noreply, State}.
 
 %%
 %%
-handle_info({peerup, Node}, S) ->
+handle_cast(Msg, State) ->
+   unexpected_msg(Msg, State),
+   {noreply, State}.
+
+%%
+%%
+handle_info({peerup, Node}, State) ->
    % join new unknown peer
-   case dict:find(Node, S#srv.peer) of
+   case dict:find(Node, State#srv.peer) of
       error      ->
-         ?DEBUG("ek: pg ~s peerup ~s~n", [S#srv.name, Node]),
-         {noreply, join_peer(Node, S)};
+         ?DEBUG("ek: pg ~s peerup ~s~n", [State#srv.name, Node]),
+         {noreply, join_peer(Node, State)};
       {ok, _Ref} ->
-         {noreply, S}
+         {noreply, State}
    end;
 
-handle_info({nodeup, Node}, S) ->
-   ?DEBUG("ek: pg ~s nodeup ~s~n", [S#srv.name, Node]),
-   erlang:send({S#srv.name, Node}, {peerup, erlang:node()}),
-   {noreply, S};
+handle_info({nodeup, Node}, State) ->
+   ?DEBUG("ek: pg ~s nodeup ~s~n", [State#srv.name, Node]),
+   erlang:send({State#srv.name, Node}, {peerup, erlang:node()}),
+   {noreply, State};
 
-handle_info({nodedown, Node}, S) ->
-   case dict:find(Node, S#srv.peer) of
+handle_info({nodedown, Node}, State) ->
+   case dict:find(Node, State#srv.peer) of
       %% peer is not known at group
       error     ->
-         {noreply, S};
+         {noreply, State};
       {ok, Ref} ->
-         ?DEBUG("ek: pg ~s peerdown ~s~n", [S#srv.name, Node]),
-         {noreply, leave_peer(Node, Ref, S)}
+         ?DEBUG("ek: pg ~s peerdown ~s~n", [State#srv.name, Node]),
+         {noreply, leave_peer(Node, Ref, State)}
    end;
 
-handle_info({'DOWN', _, _, Pid, _Reason}, S) ->
-   case lookup_pid(Pid, S) of
+handle_info({'DOWN', _, _, Pid, _Reason}, State) ->
+   case lookup_pid(Pid, State) of
       {local,  Ref} -> 
-         {noreply, leave_local_process(Pid, Ref, S)};
+         {noreply, leave_local_process(Pid, Ref, State)};
       {remote, Ref} -> 
-         {noreply, leave_remote_process(Pid, Ref, S)};
+         {noreply, leave_remote_process(Pid, Ref, State)};
       {peer,   Ref} -> 
-         {noreply, leave_peer(erlang:node(Pid), Ref, S)};
+         {noreply, leave_peer(erlang:node(Pid), Ref, State)};
       _             -> 
-         {noreply, S}
+         {noreply, State}
    end;
 
 
-handle_info({join, Pid}, S) ->
-   ?DEBUG("ek: pg ~s join ~p~n", [S#srv.name, Pid]),
-   case dict:find(Pid, S#srv.remote) of
+handle_info({join, Id, Pid}, State) ->
+   ?DEBUG("ek: pg ~s join ~p~n", [State#srv.name, Pid]),
+   case dict:find(Pid, State#srv.remote) of
       %% process is not know at group
       error      ->
-         {noreply, join_remote_process(Pid, S)};
+         {noreply, join_remote_process(Id, Pid, State)};
       %% process is known (ignore)
       {ok, _Ref} ->
-         {noreply, S}
+         {noreply, State}
    end;
 
-handle_info({leave, Pid}, #srv{}=S) ->
-   ?DEBUG("ek: pg ~s leave ~p~n", [S#srv.name, Pid]),
-   case dict:find(Pid, S#srv.remote) of
+handle_info({leave, Pid}, #srv{}=State) ->
+   ?DEBUG("ek: pg ~s leave ~p~n", [State#srv.name, Pid]),
+   case dict:find(Pid, State#srv.remote) of
       %% process is not know at group
       error     ->
-         {noreply, S};         
+         {noreply, State};         
       %% process is known (ignore)
       {ok, Ref} ->
-         {noreply, leave_remote_process(Pid, Ref, S)}
+         {noreply, leave_remote_process(Pid, Ref, State)}
    end;
 
 handle_info(Msg, S) ->
@@ -199,75 +198,77 @@ unexpected_msg(Msg, Tx, S) ->
 
 %%
 %% 
-join_peer(Node, S) ->
-   Ref = erlang:monitor(process, {S#srv.name, Node}),
-   _   = erlang:send({S#srv.name, Node}, {peerup, erlang:node()}),
+join_peer(Node, State) ->
+   Ref = erlang:monitor(process, {State#srv.name, Node}),
+   _   = erlang:send({State#srv.name, Node}, {peerup, erlang:node()}),
    %% flush local process(es) state to remote peer
    ok  = foreach(
-      fun(Pid, _Ref) -> erlang:send({S#srv.name, Node}, {join, Pid}) end,
-      S#srv.local
+      fun(Pid, _Ref) -> 
+         erlang:send({State#srv.name, Node}, {join, Pid}) 
+      end,
+      State#srv.local
    ),
-   S#srv{
-      peer = dict:store(Node, Ref, S#srv.peer)
+   State#srv{
+      peer = dict:store(Node, Ref, State#srv.peer)
    }.
 
 %%
 %%
-leave_peer(Node, Ref, S) ->
+leave_peer(Node, Ref, State) ->
    _   = erlang:demonitor(Ref, [flush]),
-   S#srv{
-      peer = dict:erase(Node, S#srv.peer)
+   State#srv{
+      peer = dict:erase(Node, State#srv.peer)
    }.
 
 %%
 %%
-join_local_process(Pid, S) ->
+join_local_process(Id, Pid, State) ->
    Ref = erlang:monitor(process, Pid),
-   ok  = send_to_peer({join, Pid}, S#srv.name, S#srv.peer), 
+   ok  = send_to_peer({join, Id, Pid}, State#srv.name, State#srv.peer), 
    ok  = foreach(
-      fun(X, _) -> 
-         erlang:send(X,   {join, Pid}),
-         erlang:send(Pid, {join, X})
+      fun(XPid, {XId, _}) -> 
+         erlang:send(XPid, {join,  Id,  Pid}),
+         erlang:send( Pid, {join, XId, XPid})
       end,
-      S#srv.local
+      State#srv.local
    ),
    ok  = foreach(
-      fun(X, _) ->
-         erlang:send(Pid, {join, X})
+      fun(XPid, {XId, _}) ->
+         erlang:send(Pid,  {join, XId, XPid})
       end,
-      S#srv.remote
+      State#srv.remote
    ),
-   S#srv{
-      local = dict:store(Pid, Ref, S#srv.local)
+   State#srv{
+      local = dict:store(Pid, {Id, Ref}, State#srv.local)
    }.
 
 %%
 %%
-leave_local_process(Pid, Ref, S) ->
-   Pids = dict:erase(Pid, S#srv.local),
+leave_local_process(Pid, {Id, Ref}, State) ->
+   Pids = dict:erase(Pid, State#srv.local),
    _    = erlang:demonitor(Ref, [flush]),
-   ok   = send_to_pids({leave, Pid}, Pids),  
-   ok   = send_to_peer({leave, Pid}, S#srv.name, S#srv.peer), 
-   S#srv{
+   ok   = send_to_pids({leave, Id, Pid}, Pids),  
+   ok   = send_to_peer({leave, Id, Pid}, State#srv.name, State#srv.peer), 
+   State#srv{
       local = Pids 
    }.
 
 %%
 %%
-join_remote_process(Pid, S) ->
+join_remote_process(Id, Pid, State) ->
    Ref = erlang:monitor(process, Pid),
-   ok  = send_to_pids({join, Pid}, S#srv.local),  
-   S#srv{
-      remote = dict:store(Pid, Ref, S#srv.remote)
+   ok  = send_to_pids({join, Id, Pid}, State#srv.local),  
+   State#srv{
+      remote = dict:store(Pid, {Id, Ref}, State#srv.remote)
    }.
 
 %%
 %%
-leave_remote_process(Pid, Ref, S) ->
+leave_remote_process(Pid, {Id, Ref}, State) ->
    _   = erlang:demonitor(Ref, [flush]),
-   ok  = send_to_pids({leave, Pid}, S#srv.local),  
-   S#srv{
-      remote = dict:erase(Pid, S#srv.remote)
+   ok  = send_to_pids({leave, Id, Pid}, State#srv.local),  
+   State#srv{
+      remote = dict:erase(Pid, State#srv.remote)
    }.
 
 
