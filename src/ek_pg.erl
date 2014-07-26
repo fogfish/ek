@@ -160,7 +160,7 @@ handle_info({join, Id, Pid}, State) ->
          {noreply, State}
    end;
 
-handle_info({leave, Pid}, #srv{}=State) ->
+handle_info({leave, _Id, Pid}, #srv{}=State) ->
    ?DEBUG("ek: pg ~s leave ~p~n", [State#srv.name, Pid]),
    case dict:find(Pid, State#srv.remote) of
       %% process is not know at group
@@ -203,8 +203,8 @@ join_peer(Node, State) ->
    _   = erlang:send({State#srv.name, Node}, {peerup, erlang:node()}),
    %% flush local process(es) state to remote peer
    ok  = foreach(
-      fun(Pid, _Ref) -> 
-         erlang:send({State#srv.name, Node}, {join, Pid}) 
+      fun(Pid, {Id, _Ref}) -> 
+         erlang:send({State#srv.name, Node}, {join, Id, Pid}) 
       end,
       State#srv.local
    ),
