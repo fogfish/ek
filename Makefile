@@ -20,8 +20,9 @@ TEST?= priv/${APP}.benchmark
 S3   =
 
 ## root path to benchmark framework
-BB   = ../basho_bench
-
+BB     = ../basho_bench
+SSHENV = /tmp/ssh-agent.conf
+ 
 ## erlang flags
 EFLAGS = \
 	-name ${APP}@127.0.0.1 \
@@ -32,7 +33,7 @@ EFLAGS = \
 	-kernel inet_dist_listen_min 32100 \
 	-kernel inet_dist_listen_max 32199 \
 	+P 1000000 \
-	+K true +A 160 -sbt ts 
+	+K true +A 160 -sbt ts
 
 ## application release
 ifeq ($(wildcard rel/reltool.config),) 
@@ -43,6 +44,9 @@ ifeq ($(wildcard rel/reltool.config),)
 else
 	REL  = $(shell cat rel/reltool.config | sed -n 's/{target_dir,.*\"\(.*\)\"}./\1/p')
 	VSN  = $(shell echo ${REL} | sed -n 's/.*-\(.*\)/\1/p')
+ifeq (${VSN},)
+	VSN  = $(shell cat rel/reltool.config | sed -n 's/.*{rel,.*\".*\",.*\"\(.*\)\".*/\1/p')
+endif
 ifeq (${config},)
 	RFLAGS  =	
 	VARIANT =
@@ -106,10 +110,27 @@ ${PKG}: pkg
 
 s3: ${PKG}
 	aws s3 cp ${PKG} ${S3}/${APP}-latest${VARIANT}.${TAG}.bundle
-		
 
 endif
 
+##
+## deploy
+##
+ifneq (${host},)
+${SSHENV}:
+	ssh-agent -s > ${SSHENV}
+
+node: ${SSHENV}
+	. ${SSHENV} ;\
+	k=`basename ${pass}` ;\
+	l=`ssh-add -l | grep $$k` ;\
+	if [ -z "$$l" ] ; then \
+		ssh-add ${pass} ;\
+	fi ;\
+	rsync -cav --rsh=ssh --progress ${PKG} ${host}:${PKG} ;\
+	ssh -t ${host} "sudo sh ./${PKG}"
+
+endif
 
 ##
 ## debug
@@ -140,6 +161,5 @@ endif
 ## dependencies
 ##
 rebar:
-	@curl -O https://raw.github.com/wiki/basho/rebar/rebar ; \
+	@curl -L -O https://raw.githubusercontent.com/wiki/basho/rebar/rebar ; \
 	chmod ugo+x rebar
-
