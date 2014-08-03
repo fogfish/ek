@@ -14,13 +14,13 @@
 %%   limitations under the License.
 %%
 %% @description
-%%   process group topology observes changes and notifies local processes
+%%   process group topology observes changes and notifies local members
 -module(ek_pg).
 -behaviour(gen_server).
 -include("ek.hrl").
 
 -export([
-   start_link/1
+   start_link/2
   ,init/1
   ,terminate/2
   ,handle_call/3
@@ -43,10 +43,10 @@
 %%%
 %%%------------------------------------------------------------------   
 
-start_link(Name) ->
-   gen_server:start_link({local, Name}, ?MODULE, [Name], []).
+start_link(Name, Opts) ->
+   gen_server:start_link({local, Name}, ?MODULE, [Name, Opts], []).
 
-init([Name]) ->
+init([Name, _Opts]) ->
    Node = erlang:node(),
    %% notify all known nodes that group peer is up
    [erlang:send({Name, X}, {peerup, Node}) || X <- erlang:nodes()], 

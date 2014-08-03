@@ -13,10 +13,15 @@
 %%   See the License for the specific language governing permissions and
 %%   limitations under the License.
 %%
-%-define(CONFIG_DEBUG, true).
+% -define(CONFIG_DEBUG, true).
 
 %% default seed timeout
 -define(CONFIG_SEED_INTERVAL,  60000).
+
+%%
+%% default gossip configuration
+-define(CONFIG_GOSSIP_TIMEOUT,  10000).
+-define(CONFIG_GOSSIP_EXCHANGE,     3).
 
 
 -ifdef(CONFIG_DEBUG).
