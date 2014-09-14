@@ -132,8 +132,8 @@ join(Name, Key, Pid) ->
 
 leave(Name) ->
    leave(Name, self()).
-leave(Name, Uid) ->
-   gen_server:call(Name, {leave, Uid}).
+leave(Name, Key) ->
+   gen_server:call(Name, {leave, Key}).
 
 
 %%
