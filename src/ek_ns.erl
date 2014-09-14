@@ -23,6 +23,9 @@
 %%   departure, therefore expensive re-balancing and partition recovery is not
 %%   performed. The name space requires explicit mechanism to alter (join/leave)
 %%   membership state. It uses gossip push protocol to exchange ring state.
+%%
+%%   single name space process ensure 40K routing per second, any other requires
+%%   parallel
 -module(ek_ns).
 -behaviour(gen_server).
 -include("ek.hrl").
@@ -35,6 +38,8 @@
   ,handle_cast/2
   ,handle_info/2
   ,code_change/3
+
+  ,diff/3
 ]).
 
 %%
@@ -94,12 +99,12 @@ handle_call({leave, Id}, _, State) ->
    {reply, ok, leave_process(Id, State)};
 
 handle_call(peers, _Tx, State) ->
-   % list all remote peers (nodes)
+   % list all remote peers (nodes running name space leader)
    Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
    {reply, Result, State};
 
 handle_call(members, _Tx, State) ->
-   % list all group members (processes)
+   % list all group members (processes members of ring)
    Result = [{Key, Pid} || {Key, {_, _, Pid}} <- ring:members(State#srv.ring)],
    {reply, Result, State};
 
@@ -125,7 +130,6 @@ handle_info({peerup, Node}, State) ->
    {noreply, join_peer(Node, State)};
 
 handle_info({nodeup, Node}, State) ->
-   ?DEBUG("ek [ns]: ~s nodeup ~s~n", [State#srv.name, Node]),
    erlang:send({State#srv.name, Node}, {peerup, erlang:node()}),
    {noreply, State};
 
@@ -137,11 +141,6 @@ handle_info({'DOWN', _, _, {_, Node}, _Reason}, State) ->
 
 handle_info({'DOWN', _, _, Pid, _Reason}, State) ->
    {noreply, failure_process(Pid, State)};
-
-% handle_info({join, _, {Node, _}}, State)
-%  when Node =:= erlang:node() ->
-%    %% accept join request from remote peer only for foreign processes
-%    {noreply, State};
 
 handle_info({join, Id,  Pid}, State) ->
    {noreply, join_process(Id, Pid, State)};
@@ -160,20 +159,29 @@ handle_info(gossip, State) ->
    ),
    {noreply, State};
 
-handle_info({reconcile, Peer, Vb, Ring}, #srv{vclock=Va}=State) ->
-   case {ek_vclock:descend(Vb, Va), ek_vclock:descend(Va, Vb)} of
-      %% remote ring is descent of local, reconcile new knowledge
-      {true, _} ->
-         {noreply, reconcile(Vb, Ring, State)};
-
-      %% local ring is descent of remote, do nothing
-      {_, true} ->
-         {noreply, State};
-
-      %% conflict resolution is required
-      {_,   _} ->
-         {noreply, conflict(Peer, Vb, Ring, State)}
-   end;
+handle_info({reconcile, _Peer, Vpeer, Vring}, #srv{vclock=Va}=State) ->
+   {VClock, Join, Leave} = reconcile(
+      State#srv.vclock
+     ,ring:members(State#srv.ring)
+     ,Vpeer
+     ,Vring
+   ),
+   State1 = lists:foldl(
+      fun(Id, Acc) ->
+         {_, {Peer, _, Pid}} = lists:keyfind(Id, 1, Vring),
+         join_process(Id, {Peer, Pid}, Acc)
+      end,
+      State#srv{vclock = VClock},
+      Join
+   ),
+   State2 = lists:foldl(
+      fun(Id, Acc) ->
+         leave_process(Id, Acc)
+      end,
+      State1,
+      Leave  
+   ),
+   {noreply, State2};
       
 handle_info(Msg, State) ->
    error_logger:warning_msg("ek [ns]: ~s unexpected message ~p~n", [State#srv.name, Msg]),
@@ -204,7 +212,6 @@ peerup(Node, State) ->
    ?DEBUG("ek [ns]: ~s peerup ~s~n", [State#srv.name, Node]),
    Ref = erlang:monitor(process, {State#srv.name, Node}),
    _   = erlang:send({State#srv.name, Node}, {peerup, erlang:node()}),
-   _   = erlang:send(self(), {exchange, Node}),
    State#srv{
       peer = bst:insert(Node, Ref, State#srv.peer)
    }.
@@ -249,7 +256,7 @@ random_peer(N, Peers) ->
    ).
 
 %%
-%% join process to ring
+%% join process to ring / re-join failed process
 join_process(Id, {Peer, Pid}, State) ->
    try
       case ring:get(Id, State#srv.ring) of
@@ -263,39 +270,38 @@ join_process(Id, {Peer, Pid}, State) ->
    end.
 
 join_to_ring(Key, {Node, undefined}, State) ->
-   ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, Pid]),
+   ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, undefined]),
    State#srv{
       ring   = ring:join(Key, {Node, undefined, undefined}, State#srv.ring)
+     ,vclock = ek_vclock:inc(State#srv.vclock)
+   };
+
+join_to_ring(Key, {Peer, Pid}, State)
+ when Peer =:= erlang:node() ->
+   ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, Pid]),
+   Ref = erlang:monitor(process, Pid),
+   notify({join, Key, Pid}, State#srv.ring),
+   [erlang:send(Pid, {join, K, P}) || 
+      {K, {N, _, P}} <- ring:members(State#srv.ring),
+                        N =:= erlang:node(),
+                        P =/= undefined
+   ],
+   State#srv{
+      ring   = ring:join(Key, {Peer, Ref, Pid}, State#srv.ring)
      ,vclock = ek_vclock:inc(State#srv.vclock)
    };
 
 join_to_ring(Key, {Peer, Pid}, State) ->
    ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, Pid]),
    Ref = erlang:monitor(process, Pid),
-   ok  = lists:foreach(
-      fun({K, {Node, _, X}}) ->
-         if
-            Peer =:= erlang:node(), X =/= undefined -> 
-               erlang:send(Pid, {join, K, X});
-            true ->
-               ok
-         end,
-         if
-            Node =:= erlang:node(), X =/= undefined ->
-               erlang:send(X, {join, Key, Pid});
-            true ->
-               ok
-         end
-      end,
-      ring:members(State#srv.ring)
-   ),
+   notify({join, Key, Pid}, State#srv.ring),
    State#srv{
       ring   = ring:join(Key, {Peer, Ref, Pid}, State#srv.ring)
      ,vclock = ek_vclock:inc(State#srv.vclock)
    }.
 
 %%
-%% 
+%% process is explicitly left from the ring 
 leave_process(Key, State) ->
    try
       ?DEBUG("ek [ns]: ~s leave ~p~n", [State#srv.name, Key]),
@@ -305,17 +311,7 @@ leave_process(Key, State) ->
          {_, Ref, _} ->
             erlang:demonitor(Ref, [flush])
       end,
-      ok  = lists:foreach(
-         fun({_, {Node, _, X}}) ->
-            if
-               Node =:= erlang:node(), X =/= undefined ->
-                  erlang:send(X, {leave, Key});
-               true ->
-                  ok
-            end
-         end,
-         ring:members(State#srv.ring)
-      ),      
+      notify({leave, Key}, State#srv.ring),
       State#srv{
          ring   = ring:leave(Key, State#srv.ring)
         ,vclock = ek_vclock:inc(State#srv.vclock)
@@ -325,23 +321,16 @@ leave_process(Key, State) ->
    end.
 
 %%
-%% transient process failure
+%% transient failure of ring member
+%% the "key" is still allocated by ring member but 
+%% writes hand-off to another partition 
 failure_process(Pid, State) ->
+   ?DEBUG("ek [ns]: ~s failed ~p~n", [State#srv.name, Pid]),
    List = ring:members(State#srv.ring),
    case [X || X = {_, {_, _, P}} <- List, P =:= Pid] of
       [{Key, {Node, Ref, Pid}}] ->
          erlang:demonitor(Ref, [flush]),
-         ok  = lists:foreach(
-            fun({_, {N, _, X}}) ->
-               if
-                  N =:= erlang:node(), X =/= undefined ->
-                     erlang:send(X, {handoff, Key});
-                  true ->
-                     ok
-               end
-            end,
-            ring:members(State#srv.ring)
-         ),      
+         notify({handoff, Key}, State#srv.ring),
          State#srv{
             ring = ring:join(Key, {Node, undefined, undefined}, State#srv.ring)
          };
@@ -349,81 +338,98 @@ failure_process(Pid, State) ->
          State
    end.
 
-%%
-%% reconcile changes from descent ring
-reconcile(VClock, Ring, State) ->
-   ?DEBUG("ek [ns]: ~s reconcile~n", [State#srv.name]),
-   diff(ring:members(State#srv.ring), Ring),
-   State#srv{
-      vclock = ek_vclock:merge(VClock, State#srv.vclock)
-   }.
 
 %%
-%% resolve conflict from incompatible ring
-%% automatic resolution is possible only for 'local conflict'
-conflict(Peer, Vb, Ring, #srv{vclock=Va}=State) ->
-   ?DEBUG("ek [ns]: ~s conflict~n",    [State#srv.name]),
-   case {ek_vclock:descend(Peer, Vb, Va), ek_vclock:descend(Peer, Va, Vb)} of
-      %% local conflict: remote ring is descent of local
-      {true, _} ->
-         local_conflict(Peer, Vb, Ring, State);
-
-      %% local conflict: local ring is descent of remote
-      {_, true} ->
-         local_conflict(Peer, Vb, Ring, State);
-
-      %% global conflict
-      {_,    _} ->
-         error_logger:error_report([
-            {error, conflict}
-           ,{peer,  Vb}
-           ,{node,  Va}
-         ]),
-         State
-   end.
-
-%%
-%% resolve local conflict, peek only entity owned by peer, 
-%% use them as ground truth 
-local_conflict(Peer, VClock, Ring, State) ->
-   A = lists:filter(
-      fun({_, {X, _, _}}) -> X =:= Peer end,
-      ring:members(State#srv.ring)
-   ),
-   B = lists:filter(
-      fun({_, {X, _, _}}) -> X =:= Peer end,
-      Ring 
-   ),
-   diff(A, B),
-   State#srv{
-      vclock = ek_vclock:merge(VClock, State#srv.vclock)
-   }.
-
-
-%%
-%% calculate difference for added, removed and recovered nodes
-diff(A, B) ->
-   Sa    = gb_sets:from_list([X || {X, _} <- A]),
-   Sb    = gb_sets:from_list([X || {X, _} <- B]),
-   Ua    = gb_sets:from_list([X || {X, {_, _, Pid}} <- A, Pid =:= undefined]),
-   Ub    = gb_sets:from_list([X || {X, {_, _, Pid}} <- B, Pid =/= undefined]),
-   Join  = gb_sets:to_list(gb_sets:difference(Sb, Sa)),
-   Leave = gb_sets:to_list(gb_sets:difference(Sa, Sb)),
-   Alive = gb_sets:to_list(gb_sets:intersection(Ua, Ub)),
-
+%% notify local processes
+notify(Msg, Ring) ->
    lists:foreach(
-      fun(Id) ->
-         {_, {Peer, _, Pid}} = lists:keyfind(Id, 1, B),
-         erlang:send(self(), {join, Id, {Peer, Pid}})
+      fun({_, {Node, _, Pid}}) ->
+         if
+            Node =:= erlang:node(), Pid =/= undefined ->
+               erlang:send(Pid, Msg);
+            true ->
+               ok
+         end
       end,
-      Join ++ Alive
-   ),
-   lists:foreach(
-      fun(Id) ->
-         erlang:send(self(), {leave, Id})
-      end,
-      Leave
-   ).
+      ring:members(Ring)
+   ).      
+
+
+% %%
+% %% reconcile changes from descent ring
+% reconcile(VClock, Ring, State) ->
+%    ?DEBUG("ek [ns]: ~s reconcile~n", [State#srv.name]),
+%    diff(ring:members(State#srv.ring), Ring),
+%    State#srv{
+%       vclock = ek_vclock:merge(VClock, State#srv.vclock)
+%    }.
+
+% %%
+% %% resolve conflict from incompatible ring
+% %% automatic resolution is possible only for 'local conflict'
+% conflict(Peer, Vb, Ring, #srv{vclock=Va}=State) ->
+%    ?DEBUG("ek [ns]: ~s conflict~n",    [State#srv.name]),
+%    case {ek_vclock:descend(Peer, Vb, Va), ek_vclock:descend(Peer, Va, Vb)} of
+%       %% local conflict: remote ring is descent of local
+%       {true, _} ->
+%          local_conflict(Peer, Vb, Ring, State);
+
+%       %% local conflict: local ring is descent of remote
+%       {_, true} ->
+%          local_conflict(Peer, Vb, Ring, State);
+
+%       %% global conflict
+%       {_,    _} ->
+%          error_logger:error_report([
+%             {conflict, State#srv.name}
+%            ,{node,     [erlang:node(), Va]}
+%            ,{peer,     [Peer,          Vb]}
+%          ]),
+%          State
+%    end.
+
+% %%
+% %% resolve local conflict, peek only entity owned by peer, 
+% %% use them as ground truth 
+% local_conflict(Peer, VClock, Ring, State) ->
+%    A = lists:filter(
+%       fun({_, {X, _, _}}) -> X =:= Peer end,
+%       ring:members(State#srv.ring)
+%    ),
+%    B = lists:filter(
+%       fun({_, {X, _, _}}) -> X =:= Peer end,
+%       Ring 
+%    ),
+%    diff(A, B),
+%    State#srv{
+%       vclock = ek_vclock:merge(VClock, State#srv.vclock)
+%    }.
+
+
+% %%
+% %% calculate difference for added, removed and recovered nodes
+% diff(A, B) ->
+%    Sa    = gb_sets:from_list([X || {X, _} <- A]),
+%    Sb    = gb_sets:from_list([X || {X, _} <- B]),
+%    Ua    = gb_sets:from_list([X || {X, {_, _, Pid}} <- A, Pid =:= undefined]),
+%    Ub    = gb_sets:from_list([X || {X, {_, _, Pid}} <- B, Pid =/= undefined]),
+%    Join  = gb_sets:to_list(gb_sets:difference(Sb, Sa)),
+%    Leave = gb_sets:to_list(gb_sets:difference(Sa, Sb)),
+%    Alive = gb_sets:to_list(gb_sets:intersection(Ua, Ub)),
+
+%    lists:foreach(
+%       fun(Id) ->
+%          {_, {Peer, _, Pid}} = lists:keyfind(Id, 1, B),
+%          erlang:send(self(), {join, Id, {Peer, Pid}})
+%       end,
+%       Join ++ Alive
+%    ),
+%    lists:foreach(
+%       fun(Id) ->
+%          erlang:send(self(), {leave, Id})
+%       end,
+%       Leave
+%    ).
 
 %%
 %% return list of nodes for key
@@ -459,5 +465,60 @@ handoff([], _) ->
    [].
 
 
+%%
+%% ring reconcile algorithm
+reconcile(Va, A, Vb, B) ->
+   case {ek_vclock:descend(Va, Vb), ek_vclock:descend(Vb, Va)} of
+      %% 1. A vclock is decent of B   
+      {true, _} ->
+         {Va, [], []};
 
+      %% 2. B vclock is decent of A
+      {_, true} ->
+         {ek_vclock:merge(Va, Vb), diff(B, A) ++ alive(A, B), diff(A, B)};
+
+      %% 3. conflict
+      {_,    _} ->
+         Peers = ek_vclock:diff(Va, Vb),
+         {ek_vclock:merge(Va, Vb), 
+            lists:flatten([diff(X, B, A) ++ alive(X, A, B) || {X, _} <- Peers]),
+            lists:flatten([diff(X, A, B) || {X, _} <- Peers])
+         }
+   end.
+
+%%
+%% 
+diff(X, Y) ->
+   gb_sets:to_list(
+      gb_sets:difference(
+         gb_sets:from_list([Key || {Key, _} <- X]), 
+         gb_sets:from_list([Key || {Key, _} <- Y]) 
+      )
+   ).
+
+diff(Peer, X, Y) ->
+   gb_sets:to_list(
+      gb_sets:difference(
+         gb_sets:from_list([Key || {Key, {P, _, _}} <- X, P =:= Peer]), 
+         gb_sets:from_list([Key || {Key, {P, _, _}} <- Y, P =:= Peer]) 
+      )
+   ).
+
+%%
+%%
+alive(X, Y) ->
+   gb_sets:to_list(
+      gb_sets:intersection(
+         gb_sets:from_list([Key || {Key, {_, _, Pid}} <- X, Pid =:= undefined]), 
+         gb_sets:from_list([Key || {Key, {_, _, Pid}} <- Y, Pid =/= undefined]) 
+      )
+   ).
+
+alive(Peer, X, Y) ->
+   gb_sets:to_list(
+      gb_sets:intersection(
+         gb_sets:from_list([Key || {Key, {P, _, Pid}} <- X, P =:= Peer, Pid =:= undefined]), 
+         gb_sets:from_list([Key || {Key, {P, _, Pid}} <- Y, P =:= Peer, Pid =/= undefined]) 
+      )
+   ).
 

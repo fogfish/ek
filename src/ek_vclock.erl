@@ -27,6 +27,7 @@
   ,merge/2
   ,descend/2
   ,descend/3
+  ,diff/2
 ]).
 
 -type(peer()   :: any()).
@@ -98,11 +99,28 @@ descend(A, [{Node, X}|B]) ->
    end.
 
 %%
-%% return true if A clock is descend B with an exception to give peer 
+%% return true if A clock is descend B with an exception to given peer 
 %% the method allows to discover local conflicts
 -spec(descend/3 :: (peer(), vclock(), vclock()) -> boolean()).
 
 descend(Node, A, B) ->
    descend(lists:keydelete(Node, 1, A), lists:keydelete(Node, 1, B)).
+
+
+%%
+%% return difference of A clock to compare with B 
+-spec(diff/2 :: (vclock(), vclock()) -> [peer()]).
+
+diff(_, []) ->
+   [];
+diff(A, [{Node, X}|B]) ->
+   case lists:keyfind(Node, 1, A) of
+      false ->
+         [{Node, X} | diff(A, B)];
+      {_, Y} when X =< Y  ->
+         diff(A, B);
+      {_, Y} ->
+         [{Node, X - Y} | diff(A, B)]
+   end.
 
 
