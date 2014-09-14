@@ -1,0 +1,23 @@
+{code_paths,      [
+   "./ebin"
+  ,"./examples/eek/ebin"
+  ,"./deps/datum/ebin"
+  ,"./deps/feta/ebin"
+]}.
+{log_level,       info}.
+{report_interval, 1}.
+{driver,          ek_benchmark}.
+
+%%
+%% workload
+{mode,           max}.
+{duration,         1}.
+{concurrent,       10}.
+{key_generator,   {int_to_bin_bigendian, {uniform_int, 10000}}}.
+{value_generator, {fixed_bin,   1000}}.
+
+{operations, [
+   {predecessors,    5} 
+]}.
+
+{slaves, [a, b, c, d]}.
