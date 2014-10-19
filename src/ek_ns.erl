@@ -108,6 +108,11 @@ handle_call(members, _Tx, State) ->
    Result = [{Key, Pid} || {Key, {_, _, Pid}} <- ring:members(State#srv.ring)],
    {reply, Result, State};
 
+handle_call({address, Key}, _Tx, State) ->
+   % list vnode addresses
+   Result = [Addr || {Addr, _Key} <- ring:lookup(Key, State#srv.ring)],
+   {reply, Result, State};
+
 handle_call({predecessors, Key}, _Tx, State) ->
    {reply, whereis(Key, fun ring:predecessors/3, State#srv.ring), State};
 

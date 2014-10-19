@@ -103,17 +103,9 @@ seed_cluster(Known, Seed) ->
             %% seed node is known
             true  ->
                ok;
-               % alarm_handler:clear_alarm({seed, Node});
             %% seed node is unknown
             false ->
-               case net_kernel:connect_node(Node) of
-                  true  ->
-                     ok;
-                  _     ->
-                     ok
-                     % alarm_handler:clear_alarm({seed, Node}),
-                     % alarm_handler:set_alarm({{seed, Node}, no_connection})
-               end
+               net_kernel:connect_node(Node)
          end
       end,
       Seed

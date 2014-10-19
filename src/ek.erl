@@ -28,6 +28,7 @@
   ,create/2
   ,peers/1 
   ,members/1
+  ,address/2
   ,join/1
   ,join/2
   ,join/3
@@ -68,11 +69,14 @@ seed(Seed, Timeout) ->
    ek_sup:start_child(worker, erlang:make_ref(), ek_seed, [Seed, Timeout]).
 
 %%
-%% create process group topology, topology manager notifiers all processes
-%% on membership changes
+%% create process topology manager 
+%%  Options
+%%   {type, pg | ns} - type of topology
+%%
+%% The topology notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
-%%   {handoff, key(), pid()} - process temporary failed  
-%%   {leave,   key(), pid()} - process left topology 
+%%   {handoff, key()} - process temporary failed  
+%%   {leave,   key()} - process left topology 
 -spec(create/1 :: (atom()) -> {ok, pid()}).
 -spec(create/2 :: (atom(), list()) -> {ok, pid()}).
 
@@ -111,6 +115,12 @@ peers(Name) ->
 members(Name) ->
    gen_server:call(Name, members).
 
+%%
+%% lists vnode addresses allocated by key
+-spec(address/2 :: (pg(), key()) -> [{integer()}]).
+
+address(Name, Key) ->
+   gen_server:call(Name, {address, Key}).
 
 %%
 %% join process to topology
@@ -119,9 +129,9 @@ members(Name) ->
 -spec(join/3 :: (pg(), key(), pid()) -> ok | {error, any()}).
 
 join(Name) ->
-   join(Name, undefined, self()).
+   join(Name, erlang:node(), self()).
 join(Name, Pid) ->
-   join(Name, undefined, Pid).
+   join(Name, erlang:node(), Pid).
 join(Name, Key, Pid) ->
    gen_server:call(Name, {join, Key, Pid}).
 

@@ -99,6 +99,9 @@ handle_call(members, _Tx, #srv{}=State) ->
    R =  [Pid || {Pid, _} <- dict:to_list(State#srv.remote)],
    {reply, L ++ R, State};
 
+handle_call(address, _Tx, State) ->
+   {reply, [], State};
+
 handle_call(Msg, Tx, State) ->
    unexpected_msg(Msg, Tx, State),
    {noreply, State}.
