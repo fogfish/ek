@@ -76,7 +76,7 @@ peer_test() ->
 ns_init() ->
    _  = error_logger:tty(false),
    ok = application:start(ek),
-   {ok, Pid} = ek:create(test_ns, [{type, ns}, {gossip, 500}, {exchange, 1}]),
+   {ok, Pid} = ek:create(test_ns, [{type, ring}, {gossip, 500}, {exchange, 1}]),
    Uid = crypto:hash(sha, erlang:term_to_binary(erlang:now())),
    {Pid, Uid}.
 

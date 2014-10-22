@@ -46,8 +46,9 @@
 %% internal state
 -record(srv, {
    name     = undefined :: atom()       %% identity of name-space
-  ,peer     = undefined :: datum:tree() %% list of remote peers (nodes running ns)
+  ,mod      = undefined :: chord | ring %% consistent hash type
   ,ring     = undefined :: datum:ring() %% name-space ring
+  ,peer     = undefined :: datum:tree() %% list of remote peers (nodes running ns)
   ,vclock   = undefined :: any()        %% vector clock of the ring
   ,gossip   = undefined :: integer()    %% gossip timeout
   ,exchange = undefined :: integer()    %% messages to forward per gossip exchange 
@@ -70,11 +71,13 @@ init([Name, Opts]) ->
    _ = net_kernel:monitor_nodes(true),
    _ = erlang:send(self(), gossip),
    _ = random:seed(os:timestamp()),
+   {_, Mod} = lists:keyfind(type, 1, Opts),
    {ok, 
       #srv{
          name     = Name
+        ,mod      = Mod
+        ,ring     = Mod:new(Opts)
         ,peer     = bst:new()
-        ,ring     = ring:new(Opts)
         ,vclock   = ek_vclock:new()
         ,gossip   = proplists:get_value(gossip,   Opts, ?CONFIG_GOSSIP_TIMEOUT)
         ,exchange = proplists:get_value(exchange, Opts, ?CONFIG_GOSSIP_EXCHANGE)
@@ -103,21 +106,21 @@ handle_call(peers, _Tx, State) ->
    Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
    {reply, Result, State};
 
-handle_call(members, _Tx, State) ->
+handle_call(members, _Tx, #srv{mod=Mod}=State) ->
    % list all group members (processes members of ring)
-   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- ring:members(State#srv.ring)],
+   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
    {reply, Result, State};
 
-handle_call({address, Key}, _Tx, State) ->
+handle_call({address, Key}, _Tx, #srv{mod=Mod}=State) ->
    % list vnode addresses
-   Result = [Addr || {Addr, _Key} <- ring:lookup(Key, State#srv.ring)],
+   Result = [Addr || {Addr, _Key} <- Mod:lookup(Key, State#srv.ring)],
    {reply, Result, State};
 
-handle_call({predecessors, Key}, _Tx, State) ->
-   {reply, whereis(Key, fun ring:predecessors/3, State#srv.ring), State};
+handle_call({predecessors, Key}, _Tx, #srv{mod=Mod}=State) ->
+   {reply, whereis(Key, fun Mod:predecessors/3, Mod, State#srv.ring), State};
 
-handle_call({successors, Key}, _Tx, State) ->
-   {reply, whereis(Key, fun ring:successors/3, State#srv.ring), State};
+handle_call({successors, Key}, _Tx, #srv{mod=Mod}=State) ->
+   {reply, whereis(Key, fun Mod:successors/3, Mod, State#srv.ring), State};
 
 handle_call(Msg, _Tx, State) ->
    error_logger:warning_msg("ek [ns]: ~s unexpected message ~p~n", [State#srv.name, Msg]),
@@ -153,9 +156,9 @@ handle_info({join, Id,  Pid}, State) ->
 handle_info({leave, Id}, State) ->
    {noreply, leave_process(Id, State)};
 
-handle_info(gossip, State) ->   
+handle_info(gossip, #srv{mod=Mod}=State) ->   
    erlang:send_after(State#srv.gossip, self(), gossip),
-   Msg  = {reconcile, erlang:node(), State#srv.vclock, ring:members(State#srv.ring)},
+   Msg  = {reconcile, erlang:node(), State#srv.vclock, Mod:members(State#srv.ring)},
    lists:foreach(
       fun(Peer) ->
          erlang:send({State#srv.name, Peer}, Msg)
@@ -164,10 +167,10 @@ handle_info(gossip, State) ->
    ),
    {noreply, State};
 
-handle_info({reconcile, _Peer, Vpeer, Vring}, #srv{vclock=Va}=State) ->
+handle_info({reconcile, _Peer, Vpeer, Vring}, #srv{mod=Mod, vclock=Va}=State) ->
    {VClock, Join, Leave} = reconcile(
       State#srv.vclock
-     ,ring:members(State#srv.ring)
+     ,Mod:members(State#srv.ring)
      ,Vpeer
      ,Vring
    ),
@@ -262,9 +265,9 @@ random_peer(N, Peers) ->
 
 %%
 %% join process to ring / re-join failed process
-join_process(Id, {Peer, Pid}, State) ->
+join_process(Id, {Peer, Pid}, #srv{mod=Mod}=State) ->
    try
-      case ring:get(Id, State#srv.ring) of
+      case Mod:get(Id, State#srv.ring) of
          {_, _, X} when X =/= Pid ->
             join_to_ring(Id, {Peer, Pid}, State);
          _ ->
@@ -274,51 +277,51 @@ join_process(Id, {Peer, Pid}, State) ->
       join_to_ring(Id, {Peer, Pid}, State)
    end.
 
-join_to_ring(Key, {Node, undefined}, State) ->
+join_to_ring(Key, {Node, undefined}, #srv{mod=Mod}=State) ->
    ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, undefined]),
    State#srv{
-      ring   = ring:join(Key, {Node, undefined, undefined}, State#srv.ring)
+      ring   = Mod:join(Key, {Node, undefined, undefined}, State#srv.ring)
      ,vclock = ek_vclock:inc(State#srv.vclock)
    };
 
-join_to_ring(Key, {Peer, Pid}, State)
+join_to_ring(Key, {Peer, Pid}, #srv{mod=Mod}=State)
  when Peer =:= erlang:node() ->
    ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, Pid]),
    Ref = erlang:monitor(process, Pid),
-   notify({join, Key, Pid}, State#srv.ring),
+   notify({join, Key, Pid}, Mod, State#srv.ring),
    [erlang:send(Pid, {join, K, P}) || 
-      {K, {N, _, P}} <- ring:members(State#srv.ring),
+      {K, {N, _, P}} <- Mod:members(State#srv.ring),
                         N =:= erlang:node(),
                         P =/= undefined
    ],
    State#srv{
-      ring   = ring:join(Key, {Peer, Ref, Pid}, State#srv.ring)
+      ring   = Mod:join(Key, {Peer, Ref, Pid}, State#srv.ring)
      ,vclock = ek_vclock:inc(State#srv.vclock)
    };
 
-join_to_ring(Key, {Peer, Pid}, State) ->
+join_to_ring(Key, {Peer, Pid}, #srv{mod=Mod}=State) ->
    ?DEBUG("ek [ns]: ~s join ~p ~p~n", [State#srv.name, Key, Pid]),
    Ref = erlang:monitor(process, Pid),
-   notify({join, Key, Pid}, State#srv.ring),
+   notify({join, Key, Pid}, Mod, State#srv.ring),
    State#srv{
-      ring   = ring:join(Key, {Peer, Ref, Pid}, State#srv.ring)
+      ring   = Mod:join(Key, {Peer, Ref, Pid}, State#srv.ring)
      ,vclock = ek_vclock:inc(State#srv.vclock)
    }.
 
 %%
 %% process is explicitly left from the ring 
-leave_process(Key, State) ->
+leave_process(Key, #srv{mod=Mod}=State) ->
    try
       ?DEBUG("ek [ns]: ~s leave ~p~n", [State#srv.name, Key]),
-      case ring:get(Key, State#srv.ring) of
+      case Mod:get(Key, State#srv.ring) of
          {_, _, undefined} ->
             ok;
          {_, Ref, _} ->
             erlang:demonitor(Ref, [flush])
       end,
-      notify({leave, Key}, State#srv.ring),
+      notify({leave, Key}, Mod, State#srv.ring),
       State#srv{
-         ring   = ring:leave(Key, State#srv.ring)
+         ring   = Mod:leave(Key, State#srv.ring)
         ,vclock = ek_vclock:inc(State#srv.vclock)
       }
    catch _:badarg ->
@@ -329,15 +332,15 @@ leave_process(Key, State) ->
 %% transient failure of ring member
 %% the "key" is still allocated by ring member but 
 %% writes hand-off to another partition 
-failure_process(Pid, State) ->
+failure_process(Pid, #srv{mod=Mod}=State) ->
    ?DEBUG("ek [ns]: ~s failed ~p~n", [State#srv.name, Pid]),
-   List = ring:members(State#srv.ring),
+   List = Mod:members(State#srv.ring),
    case [X || X = {_, {_, _, P}} <- List, P =:= Pid] of
       [{Key, {Node, Ref, Pid}}] ->
          erlang:demonitor(Ref, [flush]),
-         notify({handoff, Key}, State#srv.ring),
+         notify({handoff, Key}, Mod, State#srv.ring),
          State#srv{
-            ring = ring:join(Key, {Node, undefined, undefined}, State#srv.ring)
+            ring = Mod:join(Key, {Node, undefined, undefined}, State#srv.ring)
          };
       _ ->
          State
@@ -346,7 +349,7 @@ failure_process(Pid, State) ->
 
 %%
 %% notify local processes
-notify(Msg, Ring) ->
+notify(Msg, Mod, Ring) ->
    lists:foreach(
       fun({_, {Node, _, Pid}}) ->
          if
@@ -356,93 +359,18 @@ notify(Msg, Ring) ->
                ok
          end
       end,
-      ring:members(Ring)
+      Mod:members(Ring)
    ).      
 
 
-% %%
-% %% reconcile changes from descent ring
-% reconcile(VClock, Ring, State) ->
-%    ?DEBUG("ek [ns]: ~s reconcile~n", [State#srv.name]),
-%    diff(ring:members(State#srv.ring), Ring),
-%    State#srv{
-%       vclock = ek_vclock:merge(VClock, State#srv.vclock)
-%    }.
-
-% %%
-% %% resolve conflict from incompatible ring
-% %% automatic resolution is possible only for 'local conflict'
-% conflict(Peer, Vb, Ring, #srv{vclock=Va}=State) ->
-%    ?DEBUG("ek [ns]: ~s conflict~n",    [State#srv.name]),
-%    case {ek_vclock:descend(Peer, Vb, Va), ek_vclock:descend(Peer, Va, Vb)} of
-%       %% local conflict: remote ring is descent of local
-%       {true, _} ->
-%          local_conflict(Peer, Vb, Ring, State);
-
-%       %% local conflict: local ring is descent of remote
-%       {_, true} ->
-%          local_conflict(Peer, Vb, Ring, State);
-
-%       %% global conflict
-%       {_,    _} ->
-%          error_logger:error_report([
-%             {conflict, State#srv.name}
-%            ,{node,     [erlang:node(), Va]}
-%            ,{peer,     [Peer,          Vb]}
-%          ]),
-%          State
-%    end.
-
-% %%
-% %% resolve local conflict, peek only entity owned by peer, 
-% %% use them as ground truth 
-% local_conflict(Peer, VClock, Ring, State) ->
-%    A = lists:filter(
-%       fun({_, {X, _, _}}) -> X =:= Peer end,
-%       ring:members(State#srv.ring)
-%    ),
-%    B = lists:filter(
-%       fun({_, {X, _, _}}) -> X =:= Peer end,
-%       Ring 
-%    ),
-%    diff(A, B),
-%    State#srv{
-%       vclock = ek_vclock:merge(VClock, State#srv.vclock)
-%    }.
-
-
-% %%
-% %% calculate difference for added, removed and recovered nodes
-% diff(A, B) ->
-%    Sa    = gb_sets:from_list([X || {X, _} <- A]),
-%    Sb    = gb_sets:from_list([X || {X, _} <- B]),
-%    Ua    = gb_sets:from_list([X || {X, {_, _, Pid}} <- A, Pid =:= undefined]),
-%    Ub    = gb_sets:from_list([X || {X, {_, _, Pid}} <- B, Pid =/= undefined]),
-%    Join  = gb_sets:to_list(gb_sets:difference(Sb, Sa)),
-%    Leave = gb_sets:to_list(gb_sets:difference(Sa, Sb)),
-%    Alive = gb_sets:to_list(gb_sets:intersection(Ua, Ub)),
-
-%    lists:foreach(
-%       fun(Id) ->
-%          {_, {Peer, _, Pid}} = lists:keyfind(Id, 1, B),
-%          erlang:send(self(), {join, Id, {Peer, Pid}})
-%       end,
-%       Join ++ Alive
-%    ),
-%    lists:foreach(
-%       fun(Id) ->
-%          erlang:send(self(), {leave, Id})
-%       end,
-%       Leave
-%    ).
 
 %%
 %% return list of nodes for key
-whereis(Key0, Fun, Ring) ->
-   N = ring:n(Ring),
+whereis(Key0, Fun, Mod, Ring) ->
+   N = Mod:n(Ring),
    Nodes = [{Addr, Key, Pid} || 
       {Addr, Key} <- Fun(N * 2, Key0, Ring), 
-      {_, _, Pid} <- [ring:get(Key, Ring)]
+      {_, _, Pid} <- [Mod:get(Key, Ring)]
    ],
    case length(Nodes) of
       L when L =< N ->

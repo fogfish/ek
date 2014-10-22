@@ -71,7 +71,7 @@ seed(Seed, Timeout) ->
 %%
 %% create process topology manager 
 %%  Options
-%%   {type, pg | ns} - type of topology
+%%   {type, atom()} - type of topology
 %%
 %% The topology notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
@@ -89,7 +89,7 @@ create(Name, Opts) ->
          create(ek_pg, Name, Opts);
       {type, pg} ->
          create(ek_pg, Name, Opts);
-      {type, ns} ->
+      {type,  _} ->
          create(ek_ns, Name, Opts)
    end.
 
