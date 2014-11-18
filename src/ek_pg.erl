@@ -89,18 +89,18 @@ handle_call({leave, Pid}, _, #srv{}=State) ->
          {reply, ok, leave_local_process(Pid, Ref, State)}
    end;
 
-handle_call(peers, _Tx, #srv{}=State) ->
+handle_call(address, _Tx, State) ->
+   {reply, [], State};
+
+handle_call({ioctl, peers}, _Tx, #srv{}=State) ->
    % list all remote peers (nodes)
    {reply, [Peer || {Peer, _} <- dict:to_list(State#srv.peer)], State};
 
-handle_call(members, _Tx, #srv{}=State) ->
+handle_call({ioctl, members}, _Tx, #srv{}=State) ->
    % list all group members (processes)
    L =  [Pid || {Pid, _} <- dict:to_list(State#srv.local)],
    R =  [Pid || {Pid, _} <- dict:to_list(State#srv.remote)],
    {reply, L ++ R, State};
-
-handle_call(address, _Tx, State) ->
-   {reply, [], State};
 
 handle_call(Msg, Tx, State) ->
    unexpected_msg(Msg, Tx, State),

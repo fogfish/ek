@@ -26,8 +26,9 @@
 -export([
    create/1
   ,create/2
+  ,ioctl/2
   ,peers/1 
-  ,members/1
+  ,members/1  
   ,address/2
   ,join/1
   ,join/2
@@ -48,12 +49,10 @@
 %% start application
 -ifdef(CONFIG_DEBUG).
 start() ->
-   application:start(sasl),
    application:start(ek).
 -else.
 start() ->
    error_logger:tty(false),
-   application:start(sasl),
    application:start(ek).
 -endif.
 
@@ -71,7 +70,8 @@ seed(Seed, Timeout) ->
 %%
 %% create process topology manager 
 %%  Options
-%%   {type, atom()} - type of topology
+%%   {type,      atom()} - type of topology
+%%   {quorum, integer()} - topology quorum requirements
 %%
 %% The topology notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
@@ -102,18 +102,29 @@ create(Mod, Name, Opts) ->
    end.
 
 %%
+%% request i/o properties of topology
+%%  Options
+%%    * peer    - lists topology peers (nodes running topology manager)
+%%    * members - lists processes joined topology
+%%    * quorum  - check if topology meets quorum requirements
+-spec(ioctl/2 :: (pg(), atom()) -> any()).
+
+ioctl(Name, Req) ->
+   gen_server:call(Name, {ioctl, Req}).
+
+%%
 %% list topology peers, Erlang nodes running same topology manager
 -spec(peers/1 :: (pg()) -> [node()]).
 
 peers(Name) -> 
-   gen_server:call(Name, peers).
+   ioctl(Name, peers).
 
 %%
 %% list all topology members (processes)
 -spec(members/1 :: (pg()) -> [{key(), pid()}]).
 
 members(Name) ->
-   gen_server:call(Name, members).
+   ioctl(Name, members).
 
 %%
 %% lists vnode addresses allocated by key

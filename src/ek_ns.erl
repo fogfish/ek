@@ -51,6 +51,7 @@
   ,peer     = undefined :: datum:tree() %% list of remote peers (nodes running ns)
   ,vclock   = undefined :: any()        %% vector clock of the ring
   ,gossip   = undefined :: integer()    %% gossip timeout
+  ,quorum   = undefined :: integer()    %% 
   ,exchange = undefined :: integer()    %% messages to forward per gossip exchange 
 }).
 
@@ -80,6 +81,7 @@ init([Name, Opts]) ->
         ,peer     = bst:new()
         ,vclock   = ek_vclock:new()
         ,gossip   = proplists:get_value(gossip,   Opts, ?CONFIG_GOSSIP_TIMEOUT)
+        ,quorum   = proplists:get_value(quorum,   Opts)
         ,exchange = proplists:get_value(exchange, Opts, ?CONFIG_GOSSIP_EXCHANGE)
       }
    }.
@@ -101,16 +103,6 @@ handle_call({join, Id, Pid}, _, State) ->
 handle_call({leave, Id}, _, State) ->
    {reply, ok, leave_process(Id, State)};
 
-handle_call(peers, _Tx, State) ->
-   % list all remote peers (nodes running name space leader)
-   Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
-   {reply, Result, State};
-
-handle_call(members, _Tx, #srv{mod=Mod}=State) ->
-   % list all group members (processes members of ring)
-   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
-   {reply, Result, State};
-
 handle_call({address, Key}, _Tx, #srv{mod=Mod}=State) ->
    % list vnode addresses
    Result = [Addr || {Addr, _Key} <- Mod:lookup(Key, State#srv.ring)],
@@ -121,6 +113,27 @@ handle_call({predecessors, Key}, _Tx, #srv{mod=Mod}=State) ->
 
 handle_call({successors, Key}, _Tx, #srv{mod=Mod}=State) ->
    {reply, whereis(Key, fun Mod:successors/3, Mod, State#srv.ring), State};
+
+handle_call({ioctl, peers}, _Tx, State) ->
+   % list all remote peers (nodes running name space leader)
+   Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
+   {reply, Result, State};
+
+handle_call({ioctl, members}, _Tx, #srv{mod=Mod}=State) ->
+   % list all group members (processes members of ring)
+   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
+   {reply, Result, State};
+
+handle_call({ioctl, quorum}, _Tx, #srv{quorum=undefined}=State) ->
+   {reply, true, State};
+
+handle_call({ioctl, quorum}, _Tx, #srv{quorum=N, mod=Mod}=State) ->
+   case Mod:size(State#srv.ring) of
+      X when X >= N ->
+         {reply, true,  State};
+      _ ->
+         {reply, false, State}
+   end;
 
 handle_call(Msg, _Tx, State) ->
    error_logger:warning_msg("ek [ns]: ~s unexpected message ~p~n", [State#srv.name, Msg]),
