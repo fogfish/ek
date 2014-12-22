@@ -127,6 +127,9 @@ handle_call({ioctl, members}, _Tx, #srv{mod=Mod}=State) ->
 handle_call({ioctl, quorum}, _Tx, #srv{quorum=undefined}=State) ->
    {reply, true, State};
 
+handle_call({ioctl, {lookup, Key}}, _Tx, #srv{mod = Mod, ring = Ring}=State) ->
+   {reply, Mod:lookup(Key, Ring), State};
+
 handle_call({ioctl, quorum}, _Tx, #srv{quorum=N, mod=Mod}=State) ->
    case Mod:size(State#srv.ring) of
       X when X >= N ->
