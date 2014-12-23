@@ -29,7 +29,7 @@
   ,ioctl/2
   ,peers/1 
   ,members/1  
-  ,address/2
+  ,whois/2
   ,join/1
   ,join/2
   ,join/3
@@ -101,7 +101,7 @@ create(Mod, Name, Opts) ->
          {ok, Pid}
    end.
 
-%%
+%% @deprecated
 %% request i/o properties of topology
 %%  Options
 %%    * peer    - lists topology peers (nodes running topology manager)
@@ -127,11 +127,11 @@ members(Name) ->
    ioctl(Name, members).
 
 %%
-%% lists vnode addresses allocated by key
--spec(address/2 :: (pg(), key()) -> [{integer()}]).
+%% lists vnode allocated by key
+-spec(whois/2 :: (pg(), key()) -> [{integer()}]).
 
-address(Name, Key) ->
-   gen_server:call(Name, {address, Key}).
+whois(Name, Key) ->
+   gen_server:call(Name, {whois, Key}).
 
 %%
 %% join process to topology

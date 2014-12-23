@@ -103,9 +103,9 @@ handle_call({join, Id, Pid}, _, State) ->
 handle_call({leave, Id}, _, State) ->
    {reply, ok, leave_process(Id, State)};
 
-handle_call({address, Key}, _Tx, #srv{mod=Mod}=State) ->
+handle_call({whois, Key}, _Tx, #srv{mod=Mod}=State) ->
    % list vnode addresses
-   Result = [Addr || {Addr, _Key} <- Mod:lookup(Key, State#srv.ring)],
+   Result = [Addr || {Addr, _Key} <- Mod:whois(Key, State#srv.ring)],
    {reply, Result, State};
 
 handle_call({predecessors, Key}, _Tx, #srv{mod=Mod}=State) ->
