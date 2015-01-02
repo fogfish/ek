@@ -55,7 +55,6 @@
   ,exchange = undefined :: integer()    %% messages to forward per gossip exchange 
 }).
 
-
 %%%------------------------------------------------------------------
 %%%
 %%% factory
@@ -383,7 +382,7 @@ notify(Msg, Mod, Ring) ->
 whereis(Key0, Fun, Mod, Ring) ->
    N = Mod:n(Ring),
    Nodes = [{Addr, Key, Pid} || 
-      {Addr, Key} <- Fun(N * 2, Key0, Ring), 
+      {Addr, Key} <- Fun(N * 3, Key0, Ring), 
       {_, _, Pid} <- [Mod:get(Key, Ring)]
    ],
    case length(Nodes) of
