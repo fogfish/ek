@@ -55,6 +55,10 @@
   ,exchange = undefined :: integer()    %% messages to forward per gossip exchange 
 }).
 
+%%
+%% scale factor of preference list SIZE * n
+-define(SIZE,       4).
+
 %%%------------------------------------------------------------------
 %%%
 %%% factory
@@ -180,7 +184,7 @@ handle_info(gossip, #srv{mod=Mod}=State) ->
    ),
    {noreply, State};
 
-handle_info({reconcile, _Peer, Vpeer, Vring}, #srv{mod=Mod, vclock=Va}=State) ->
+handle_info({reconcile, _Peer, Vpeer, Vring}, #srv{mod=Mod}=State) ->
    {VClock, Join, Leave} = reconcile(
       State#srv.vclock
      ,Mod:members(State#srv.ring)
@@ -381,33 +385,62 @@ notify(Msg, Mod, Ring) ->
 %% return list of nodes for key
 whereis(Key0, Fun, Mod, Ring) ->
    N = Mod:n(Ring),
-   Nodes = [{Addr, Key, Pid} || 
-      {Addr, Key} <- Fun(N * 3, Key0, Ring), 
-      {_, _, Pid} <- [Mod:get(Key, Ring)]
-   ],
-   case length(Nodes) of
-      L when L =< N ->
-         [{primary, Addr, Key, Pid} || {Addr, Key, Pid} <- Nodes, Pid =/= undefined];
-      _ ->
-         {Primary, Handoff} = lists:split(N, Nodes),
-         handoff(Primary, Handoff)
+   case 
+      [{Addr, Key, Pid} || 
+         {Addr, Key} <- Fun(N * ?SIZE, Key0, Ring), 
+         {_, _, Pid} <- [Mod:get(Key, Ring)]
+      ]
+   of
+      [] ->
+         [];
+
+      [{Vnode, _, _}|_] = Nodes when length(Nodes) =< N ->
+         [{primary, Vnode, Key, Pid} || {_, Key, Pid} <- Nodes, Pid =/= undefined];
+
+      [{Vnode, _, _}|_] = Nodes ->
+         {Primary, Handoff} = candidates(N, Nodes),
+         handoff(Vnode, Primary, Handoff)
    end.
 
 %%
+%% split preference list to primary and candidate nodes
+candidates(N, Nodes) ->
+   candidates(N, Nodes, []).
+
+candidates(N, Nodes, Primary)
+ when length(Primary) =:= N ->
+   Handoff = lists:filter(
+      fun({_, Key, _}) -> lists:keyfind(Key, 2, Primary) =:= false end,
+      Nodes
+   ),
+   {lists:reverse(Primary), Handoff};
+
+candidates(N, [{_, Key, _}=Node | Nodes], Primary) ->
+   case lists:keyfind(Key, 2, Primary) of
+      false ->
+         candidates(N, Nodes, [Node | Primary]);
+      _     ->
+         candidates(N, Nodes, Primary)
+   end;
+
+candidates(_, [], Primary) ->
+   {lists:reverse(Primary), []}.
+
+%%
 %% build hand-off list
-handoff([{_, _, undefined}|_]=Primary, [{_, _, undefined}|Handoff]) ->
-   handoff(Primary, Handoff);
+handoff(Vnode, [{_, _, undefined}|_]=Primary, [{_, _, undefined}|Handoff]) ->
+   handoff(Vnode, Primary, Handoff);
 
-handoff([{_, _, undefined}|Primary], []) ->
-   handoff(Primary, []);
+handoff(Vnode, [{_, _, undefined}|Primary], []) ->
+   handoff(Vnode, Primary, []);
 
-handoff([{Addr, Key, undefined} | Primary], [{_, _, Pid} | Handoff]) ->
-   [{handoff, Addr, Key, Pid} | handoff(Primary, Handoff)];
+handoff(Vnode, [{_Addr, Key, undefined} | Primary], [{_, _, Pid} | Handoff]) ->
+   [{handoff, Vnode, Key, Pid} | handoff(Vnode, Primary, Handoff)];
 
-handoff([{Addr, Key, Pid} | Primary], Handoff) ->
-   [{primary, Addr, Key, Pid} | handoff(Primary, Handoff)];
+handoff(Vnode, [{_Addr, Key, Pid} | Primary], Handoff) ->
+   [{primary, Vnode, Key, Pid} | handoff(Vnode, Primary, Handoff)];
 
-handoff([], _) ->
+handoff(_, [], _) ->
    [].
 
 
