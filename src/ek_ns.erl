@@ -106,6 +106,19 @@ handle_call({join, Id, Pid}, _, State) ->
 handle_call({leave, Id}, _, State) ->
    {reply, ok, leave_process(Id, State)};
 
+handle_call(peers, _Tx, State) ->
+   % list all remote peers (nodes running name space leader)
+   Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
+   {reply, Result, State};
+
+handle_call(members, _Tx, #srv{mod=Mod}=State) ->
+   % list all group members (processes members of ring)
+   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
+   {reply, Result, State};
+
+handle_call(vnode, _Tx, #srv{mod=Mod}=State) ->
+   {reply, Mod:address(State#srv.ring), State};
+
 handle_call({whois, Key}, _Tx, #srv{mod=Mod}=State) ->
    {reply, Mod:whois(Key, State#srv.ring), State};
 
@@ -114,19 +127,6 @@ handle_call({predecessors, Key}, _Tx, #srv{mod=Mod}=State) ->
 
 handle_call({successors, Key}, _Tx, #srv{mod=Mod}=State) ->
    {reply, whereis(Key, fun Mod:successors/3, Mod, State#srv.ring), State};
-
-handle_call({ioctl, peers}, _Tx, State) ->
-   % list all remote peers (nodes running name space leader)
-   Result = [Peer || {Peer, _} <- bst:list(State#srv.peer)],
-   {reply, Result, State};
-
-handle_call({ioctl, members}, _Tx, #srv{mod=Mod}=State) ->
-   % list all group members (processes members of ring)
-   Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
-   {reply, Result, State};
-
-handle_call({ioctl, quorum}, _Tx, #srv{quorum=undefined}=State) ->
-   {reply, true, State};
 
 handle_call({ioctl, {lookup, Key}}, _Tx, #srv{mod = Mod, ring = Ring}=State) ->
    {reply, Mod:lookup(Key, Ring), State};

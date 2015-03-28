@@ -26,9 +26,9 @@
 -export([
    create/1
   ,create/2
-  ,ioctl/2
   ,peers/1 
   ,members/1  
+  ,vnode/1
   ,whois/2
   ,join/1
   ,join/2
@@ -101,30 +101,26 @@ create(Mod, Name, Opts) ->
          {ok, Pid}
    end.
 
-%% @deprecated
-%% request i/o properties of topology
-%%  Options
-%%    * peer    - lists topology peers (nodes running topology manager)
-%%    * members - lists processes joined topology
-%%    * quorum  - check if topology meets quorum requirements
--spec(ioctl/2 :: (pg(), atom()) -> any()).
-
-ioctl(Name, Req) ->
-   gen_server:call(Name, {ioctl, Req}).
-
 %%
 %% list topology peers, Erlang nodes running same topology manager
 -spec(peers/1 :: (pg()) -> [node()]).
 
 peers(Name) -> 
-   ioctl(Name, peers).
+	gen_server:call(Name, peers).
 
 %%
 %% list all topology members (processes)
 -spec(members/1 :: (pg()) -> [{key(), pid()}]).
 
 members(Name) ->
-   ioctl(Name, members).
+	gen_server:call(Name, members).
+
+%%
+%% list all vnode addresses 
+-spec(vnode/1 :: (pg()) -> [integer()]).
+
+vnode(Name) ->
+	gen_server:call(Name, vnode).
 
 %%
 %% lists vnode allocated by key
