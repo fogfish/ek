@@ -89,8 +89,14 @@ handle_call({leave, Pid}, _, #srv{}=State) ->
          {reply, ok, leave_local_process(Pid, Ref, State)}
    end;
 
-handle_call(vnode, _Tx, State) ->
-   {reply, [], State};
+handle_call(size, _Tx, #srv{local=L, remote=R}=State) ->
+   {reply, dict:size(L) + dict:size(R), State};
+
+handle_call(address, _Tx, State) ->
+   % list all group members id
+   L =  [Id || {_, {Id, _}} <- dict:to_list(State#srv.local)],
+   R =  [Id || {_, {Id, _}} <- dict:to_list(State#srv.remote)],
+   {reply, L ++ R, State};
 
 handle_call(peers, _Tx, #srv{}=State) ->
    % list all remote peers (nodes)

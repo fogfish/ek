@@ -116,8 +116,11 @@ handle_call(members, _Tx, #srv{mod=Mod}=State) ->
    Result = [{Key, Pid} || {Key, {_, _, Pid}} <- Mod:members(State#srv.ring)],
    {reply, Result, State};
 
-handle_call(vnode, _Tx, #srv{mod=Mod}=State) ->
-   {reply, Mod:address(State#srv.ring), State};
+handle_call(size, _Tx, #srv{mod=Mod, ring=Ring}=State) ->
+   {reply, Mod:size(Ring), State};
+
+handle_call(address, _Tx, #srv{mod=Mod, ring=Ring}=State) ->
+   {reply, Mod:address(Ring), State};
 
 handle_call({whois, Key}, _Tx, #srv{mod=Mod}=State) ->
    {reply, Mod:whois(Key, State#srv.ring), State};

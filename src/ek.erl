@@ -28,7 +28,8 @@
   ,create/2
   ,peers/1 
   ,members/1  
-  ,vnode/1
+  ,size/1
+  ,address/1
   ,whois/2
   ,join/1
   ,join/2
@@ -116,11 +117,19 @@ members(Name) ->
 	gen_server:call(Name, members).
 
 %%
-%% list all vnode addresses 
--spec(vnode/1 :: (pg()) -> [integer()]).
+%% return size of topology
+-spec(size/1 :: (pg()) -> integer()).
 
-vnode(Name) ->
-	gen_server:call(Name, vnode).
+size(Name) ->
+   gen_server:call(Name, size).
+   
+
+%%
+%% list addresses managed by topology 
+-spec(address/1 :: (pg()) -> [integer()]).
+
+address(Name) ->
+	gen_server:call(Name, address).
 
 %%
 %% lists vnode allocated by key
