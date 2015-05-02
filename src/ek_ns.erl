@@ -360,7 +360,8 @@ failure_process(Pid, #srv{mod=Mod}=State) ->
          erlang:demonitor(Ref, [flush]),
          notify({handoff, Key}, Mod, State#srv.ring),
          State#srv{
-            ring = Mod:join(Key, {Node, undefined, undefined}, State#srv.ring)
+            ring   = Mod:join(Key, {Node, undefined, undefined}, State#srv.ring)
+           ,vclock = ek_vclock:inc(State#srv.vclock)
          };
       _ ->
          State
