@@ -22,26 +22,26 @@
   ,run/4
 ]).
 
--define(SLAVES,  [a,b,c,d]).
--define(RING,    [
-   {type,  ns}
-  ,{m,     16}
-  ,{n,      3}
-  ,{q,   4096}
-  ,{hash, sha}
-]).
-
 %%
 %%
-new(_Id) ->
-   _ = init(),
+new(Id) ->
+   application:start(ek),
+   {ok, _} = ek:create(eek, basho_bench_config:get(ring, [])),
+   Node    = erlang:list_to_binary(lists:flatten([$a + Id - 1, $@, "127.0.0.1"])),
+   ok = ek:join(eek, Node, self()),
    {ok, undefined}.
 
 %%
 %%
-run(predecessors, _KeyGen, ValGen, State) ->
-   _List = ek:predecessors(eek, ValGen()),
-   {ok, State}.
+run(predecessors, KeyGen, _ValGen, State) ->
+   Key = itos(KeyGen()),
+   case ek:predecessors(eek, Key) of
+      List when length(List) < 3 ->
+         % error_logger:error_report([{quorum, Key}, {peers, List}]),
+         {error, quorum, State};
+      _ ->
+         {ok, State}
+   end.
 
 %%%------------------------------------------------------------------
 %%%
@@ -49,40 +49,6 @@ run(predecessors, _KeyGen, ValGen, State) ->
 %%%
 %%%------------------------------------------------------------------   
 
-%%
-%% init application
-init() ->
-   case application:start(ek) of
-      %% application started for first time
-      %% build a cluster on slave nodes
-      ok ->
-         {ok, _} = ek:create(eek, ?RING),
-         ok = ek:join(eek, addr(), self()),
-         % lists:foreach(
-         %    fun(X) -> {ok, _} = clone:start(X, [eek]) end,
-         %    basho_bench_config:get(slaves, ?SLAVES)
-         % ),
-         ping();
-      _  ->
-         {ok, _} = ek:create(eek, ?RING),
-         ok = ek:join(eek, addr(), self()),
-         ok
-   end.  
-
-ping() ->
-   case ek:members(eek) of
-      [] ->
-         timer:sleep(100),
-         ping();
-      _  ->
-         ok
-   end.
-
-%%
-%%
-addr() ->
-   random:seed(erlang:now()),
-   crypto:hash(sha,
-      erlang:term_to_binary({erlang:now(), random:uniform(16#ffffffff)})
-   ).
+itos(X) ->
+   erlang:list_to_binary(erlang:integer_to_list(X)).
 
