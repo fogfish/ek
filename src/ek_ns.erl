@@ -403,7 +403,7 @@ whereis(Key0, Fun, Mod, Ring) ->
 
       [{Vnode, _, _}|_] = Nodes ->
          {Primary, Handoff} = candidates(N, Nodes),
-         handoff(Vnode, Primary, Handoff)
+         sortnode(handoff(Vnode, Primary, Handoff))
    end.
 
 %%
@@ -446,6 +446,21 @@ handoff(Vnode, [{_Addr, Key, Pid} | Primary], Handoff) ->
 
 handoff(_, [], _) ->
    [].
+
+%%
+%%
+sortnode(Nodes) ->
+   case
+      lists:partition(
+         fun({X, _, _, _}) -> X =/= primary end,
+         Nodes
+      )
+   of
+      {Handoff,      []} ->
+         Handoff;
+      {Handoff, Primary} ->
+         Primary ++ Handoff
+   end.
 
 
 %%
