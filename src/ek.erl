@@ -39,6 +39,7 @@
   ,predecessors/2
   ,successors/2
   ,vnode/2
+  ,vnode/3
 ]).
 
 %%
@@ -181,12 +182,18 @@ successors(Name, Key) ->
 %% return vnode attribute
 -spec(vnode/2 :: (atom(), vnode()) -> any()).
 
-vnode(type, {X, _, _, _, _}) -> X;
-vnode(ring, {_, X, _, _, _}) -> X;
-vnode(addr, {_, _, X, _, _}) -> X;
-vnode(key,  {_, _, _, X, _}) -> X;
-vnode(pid,  {_, _, _, _, X}) -> X.
+vnode(type, Vnode) -> erlang:element(1, Vnode);
+vnode(ring, Vnode) -> erlang:element(2, Vnode);
+vnode(addr, Vnode) -> erlang:element(3, Vnode);
+vnode(key,  Vnode) -> erlang:element(4, Vnode);
+vnode(pid,  Vnode) -> erlang:element(5, Vnode).
 
+
+vnode(type, X, Vnode) -> erlang:setelement(1, Vnode, X);
+vnode(ring, X, Vnode) -> erlang:setelement(2, Vnode, X);
+vnode(addr, X, Vnode) -> erlang:setelement(3, Vnode, X);
+vnode(key,  X, Vnode) -> erlang:setelement(4, Vnode, X);
+vnode(pid,  X, Vnode) -> erlang:setelement(5, Vnode, X).
 
 
 
