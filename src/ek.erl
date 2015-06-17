@@ -38,13 +38,14 @@
   ,leave/2
   ,predecessors/2
   ,successors/2
+  ,vnode/2
 ]).
 
 %%
 -type(pg()     :: pid() | atom()).
 -type(key()    :: any()).
 -type(addr()   :: integer()).
--type(vnode()  :: {primary | handoff, addr(), key(), pid()}).
+-type(vnode()  :: {primary | handoff, atom(), addr(), key(), pid()}).
 
 %%
 %% start application
@@ -175,6 +176,16 @@ predecessors(Name, Key) ->
 
 successors(Name, Key) ->
    gen_server:call(Name, {successors, Key}).
+
+%%
+%% return vnode attribute
+-spec(vnode/2 :: (atom(), vnode()) -> any()).
+
+vnode(type, {X, _, _, _, _}) -> X;
+vnode(ring, {_, X, _, _, _}) -> X;
+vnode(addr, {_, _, X, _, _}) -> X;
+vnode(key,  {_, _, _, X, _}) -> X;
+vnode(pid,  {_, _, _, _, X}) -> X.
 
 
 

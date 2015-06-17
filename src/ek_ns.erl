@@ -125,11 +125,11 @@ handle_call(address, _Tx, #srv{mod=Mod, ring=Ring}=State) ->
 handle_call({whois, Key}, _Tx, #srv{mod=Mod}=State) ->
    {reply, Mod:whois(Key, State#srv.ring), State};
 
-handle_call({predecessors, Key}, _Tx, #srv{mod=Mod}=State) ->
-   {reply, whereis(Key, fun Mod:predecessors/3, Mod, State#srv.ring), State};
+handle_call({predecessors, Key}, _Tx, #srv{mod=Mod, name=Name, ring=Ring}=State) ->
+   {reply, whereis(Key, fun Mod:predecessors/3, Mod, Name, Ring), State};
 
-handle_call({successors, Key}, _Tx, #srv{mod=Mod}=State) ->
-   {reply, whereis(Key, fun Mod:successors/3, Mod, State#srv.ring), State};
+handle_call({successors, Key}, _Tx, #srv{mod=Mod, name=Name, ring=Ring}=State) ->
+   {reply, whereis(Key, fun Mod:successors/3, Mod, Name, Ring), State};
 
 handle_call({ioctl, {lookup, Key}}, _Tx, #srv{mod = Mod, ring = Ring}=State) ->
    {reply, Mod:lookup(Key, Ring), State};
@@ -387,7 +387,7 @@ notify(Msg, Mod, Ring) ->
 
 %%
 %% return list of nodes for key
-whereis(Key0, Fun, Mod, Ring) ->
+whereis(Key0, Fun, Mod, Name, Ring) ->
    N = Mod:n(Ring),
    case 
       [{Addr, Key, Pid} || 
@@ -399,11 +399,11 @@ whereis(Key0, Fun, Mod, Ring) ->
          [];
 
       [{Vnode, _, _}|_] = Nodes when length(Nodes) =< N ->
-         [{primary, Vnode, Key, Pid} || {_, Key, Pid} <- Nodes, Pid =/= undefined];
+         [{primary, Name, Vnode, Key, Pid} || {_, Key, Pid} <- Nodes, Pid =/= undefined];
 
       [{Vnode, _, _}|_] = Nodes ->
          {Primary, Handoff} = candidates(N, Nodes),
-         sortnode(handoff(Vnode, Primary, Handoff))
+         sortnode(handoff(Name, Vnode, Primary, Handoff))
    end.
 
 %%
@@ -432,19 +432,19 @@ candidates(_, [], Primary) ->
 
 %%
 %% build hand-off list
-handoff(Vnode, [{_, _, undefined}|_]=Primary, [{_, _, undefined}|Handoff]) ->
-   handoff(Vnode, Primary, Handoff);
+handoff(Name, Vnode, [{_, _, undefined}|_]=Primary, [{_, _, undefined}|Handoff]) ->
+   handoff(Name, Vnode, Primary, Handoff);
 
-handoff(Vnode, [{_, _, undefined}|Primary], []) ->
-   handoff(Vnode, Primary, []);
+handoff(Name, Vnode, [{_, _, undefined}|Primary], []) ->
+   handoff(Name, Vnode, Primary, []);
 
-handoff(Vnode, [{_Addr, Key, undefined} | Primary], [{_, _, Pid} | Handoff]) ->
-   [{handoff, Vnode, Key, Pid} | handoff(Vnode, Primary, Handoff)];
+handoff(Name, Vnode, [{_Addr, Key, undefined} | Primary], [{_, _, Pid} | Handoff]) ->
+   [{handoff, Name, Vnode, Key, Pid} | handoff(Name, Vnode, Primary, Handoff)];
 
-handoff(Vnode, [{_Addr, Key, Pid} | Primary], Handoff) ->
-   [{primary, Vnode, Key, Pid} | handoff(Vnode, Primary, Handoff)];
+handoff(Name, Vnode, [{_Addr, Key, Pid} | Primary], Handoff) ->
+   [{primary, Name, Vnode, Key, Pid} | handoff(Name, Vnode, Primary, Handoff)];
 
-handoff(_, [], _) ->
+handoff(_Name, _Vnode, [], _) ->
    [].
 
 %%
@@ -452,7 +452,7 @@ handoff(_, [], _) ->
 sortnode(Nodes) ->
    case
       lists:partition(
-         fun({X, _, _, _}) -> X =/= primary end,
+         fun(X) -> erlang:element(1, X) =/= primary end,
          Nodes
       )
    of
