@@ -150,8 +150,8 @@ join(Name) ->
    join(Name, erlang:node(), self()).
 join(Name, Pid) ->
    join(Name, erlang:node(), Pid).
-join(Name, Key, Pid) ->
-   gen_server:call(Name, {join, Key, Pid}).
+join(Name, Node, Pid) ->
+   gen_server:call(Name, {join, Node, Pid}).
 
 %%
 %% leave process from topology
@@ -185,14 +185,14 @@ successors(Name, Key) ->
 vnode(type, Vnode) -> erlang:element(1, Vnode);
 vnode(ring, Vnode) -> erlang:element(2, Vnode);
 vnode(addr, Vnode) -> erlang:element(3, Vnode);
-vnode(key,  Vnode) -> erlang:element(4, Vnode);
+vnode(node, Vnode) -> erlang:element(4, Vnode);
 vnode(peer, Vnode) -> erlang:element(5, Vnode).
 
 
 vnode(type, X, Vnode) -> erlang:setelement(1, Vnode, X);
 vnode(ring, X, Vnode) -> erlang:setelement(2, Vnode, X);
 vnode(addr, X, Vnode) -> erlang:setelement(3, Vnode, X);
-vnode(key,  X, Vnode) -> erlang:setelement(4, Vnode, X);
+vnode(node, X, Vnode) -> erlang:setelement(4, Vnode, X);
 vnode(peer, X, Vnode) -> erlang:setelement(5, Vnode, X).
 
 
