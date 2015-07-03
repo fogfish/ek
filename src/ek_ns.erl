@@ -38,8 +38,6 @@
   ,handle_cast/2
   ,handle_info/2
   ,code_change/3
-
-  ,diff/3
 ]).
 
 %%
@@ -355,18 +353,16 @@ leave_process(Key, #srv{mod=Mod}=State) ->
 failure_process(Pid, #srv{mod=Mod}=State) ->
    ?DEBUG("ek [ns]: ~s failed ~p~n", [State#srv.name, Pid]),
    List = Mod:members(State#srv.ring),
-   case [X || X = {_, {_, _, P}} <- List, P =:= Pid] of
-      [{Key, {Node, Ref, Pid}}] ->
+   Ring = lists:foldl(
+      fun({Key, {Node, Ref, _Pid}}, Acc) ->
          erlang:demonitor(Ref, [flush]),
-         notify({handoff, Key}, Mod, State#srv.ring),
-         State#srv{
-            ring   = Mod:join(Key, {Node, undefined, undefined}, State#srv.ring)
-           ,vclock = ek_vclock:inc(State#srv.vclock)
-         };
-      _ ->
-         State
-   end.
-
+         notify({handoff, Key}, Mod, Acc),
+         Mod:join(Key, {Node, undefined, undefined}, Acc)
+      end,
+      State#srv.ring,
+      [X || X = {_, {_, _, P}} <- List, P =:= Pid]
+   ),
+   State#srv{ring = Ring ,vclock = ek_vclock:inc(State#srv.vclock)}.
 
 %%
 %% notify local processes
