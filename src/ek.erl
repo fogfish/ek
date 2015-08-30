@@ -15,6 +15,10 @@
 %%
 %% @description
 %%   Erlang clustering utility
+%%
+%% @todo
+%%  * auto discovery of ring config
+%%  * drop quorum
 -module(ek).
 -include("ek.hrl").
 
