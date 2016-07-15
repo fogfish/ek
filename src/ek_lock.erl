@@ -27,8 +27,8 @@
 
 %%
 %% start global lock manager
--spec(start_link/1 :: (any()) -> {ok, pid()} | {error, any()}).
--spec(start_link/2 :: (any(), any()) -> {ok, pid()} | {error, any()}).
+-spec start_link(any()) -> {ok, pid()} | {error, any()}.
+-spec start_link(any(), any()) -> {ok, pid()} | {error, any()}.
 
 start_link(Ns) ->
    gen_server:start_link(?MODULE, [Ns, undefined], []).
@@ -60,7 +60,7 @@ terminate(_, _) ->
 
 %%
 %% leases global lock and return associated token
--spec(lease/2 :: (atom(), integer()) -> any() | conflict | timeout).
+-spec lease(atom(), integer()) -> any() | conflict | timeout.
 
 lease(Name, Timeout) ->
    try
@@ -71,7 +71,7 @@ lease(Name, Timeout) ->
 
 %%
 %% release global lock and inject a new token
--spec(release/2 :: (atom(), any()) -> ok | {error, any()}).
+-spec release(atom(), any()) -> ok | {error, any()}.
 
 release(Name, Token) ->
    gen_server:call(Name, {release, Token}).

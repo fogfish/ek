@@ -35,8 +35,8 @@
 
 %%
 %% create new vector clock
--spec(new/0 :: () -> vclock()).
--spec(new/1 :: (peer()) -> vclock()).
+-spec new() -> vclock().
+-spec new(peer()) -> vclock().
 
 new() ->
    new(erlang:node()).
@@ -46,8 +46,8 @@ new(Node) ->
 
 %%
 %% increment vector clock
--spec(inc/1 :: (vclock()) -> vclock()).
--spec(inc/2 :: (peer(), vclock()) -> vclock()).
+-spec inc(vclock()) -> vclock().
+-spec inc(peer(), vclock()) -> vclock().
 
 inc(VClock) ->
    inc(erlang:node(), VClock).
@@ -62,7 +62,7 @@ inc(Node, VClock) ->
 
 %%
 %% merge vector clock
--spec(merge/2 :: (vclock(), vclock()) -> vclock()). 
+-spec merge(vclock(), vclock()) -> vclock(). 
 
 merge(A, B) ->
    do_merge(lists:keysort(1, A), lists:keysort(1, B)).
@@ -86,7 +86,7 @@ do_merge(A, []) ->
 
 %%
 %% return true if A clock is descend B : A -> B 
--spec(descend/2 :: (vclock(), vclock()) -> boolean()).
+-spec descend(vclock(), vclock()) -> boolean().
 
 descend(_, []) ->
    true;
@@ -101,7 +101,7 @@ descend(A, [{Node, X}|B]) ->
 %%
 %% return true if A clock is descend B with an exception to given peer 
 %% the method allows to discover local conflicts
--spec(descend/3 :: (peer(), vclock(), vclock()) -> boolean()).
+-spec descend(peer(), vclock(), vclock()) -> boolean().
 
 descend(Node, A, B) ->
    descend(lists:keydelete(Node, 1, A), lists:keydelete(Node, 1, B)).
@@ -109,7 +109,7 @@ descend(Node, A, B) ->
 
 %%
 %% return difference of A clock to compare with B 
--spec(diff/2 :: (vclock(), vclock()) -> [peer()]).
+-spec diff(vclock(), vclock()) -> [peer()].
 
 diff(_, []) ->
    [];

@@ -65,8 +65,8 @@ start() ->
 
 %%
 %% seed cluster nodes
--spec(seed/1 :: ([node()]) -> {ok, pid()} | {error, any()}).
--spec(seed/2 :: ([node()], timeout()) -> {ok, pid()} | {error, any()}).
+-spec seed([node()]) -> {ok, pid()} | {error, any()}.
+-spec seed([node()], timeout()) -> {ok, pid()} | {error, any()}.
 
 seed(Seed) ->
    seed(Seed, ?CONFIG_SEED_INTERVAL).
@@ -84,8 +84,8 @@ seed(Seed, Timeout) ->
 %%   {join,    key(), pid()} - process joined topology
 %%   {handoff, key()} - process temporary failed  
 %%   {leave,   key()} - process left topology 
--spec(create/1 :: (atom()) -> {ok, pid()}).
--spec(create/2 :: (atom(), list()) -> {ok, pid()}).
+-spec create(atom()) -> {ok, pid()}.
+-spec create(atom(), list()) -> {ok, pid()}.
 
 create(Name) ->
    create(Name, [{type, pg}]).
@@ -110,21 +110,21 @@ create(Mod, Name, Opts) ->
 
 %%
 %% list topology peers, Erlang nodes running same topology manager
--spec(peers/1 :: (pg()) -> [node()]).
+-spec peers(pg()) -> [node()].
 
 peers(Name) -> 
 	gen_server:call(Name, peers).
 
 %%
 %% list all topology members (processes)
--spec(members/1 :: (pg()) -> [{key(), pid()}]).
+-spec members(pg()) -> [{key(), pid()}].
 
 members(Name) ->
 	gen_server:call(Name, members).
 
 %%
 %% return size of topology
--spec(size/1 :: (pg()) -> integer()).
+-spec size(pg()) -> integer().
 
 size(Name) ->
    gen_server:call(Name, size).
@@ -132,23 +132,23 @@ size(Name) ->
 
 %%
 %% list addresses managed by topology 
--spec(address/1 :: (pg()) -> [integer()]).
+-spec address(pg()) -> [integer()].
 
 address(Name) ->
 	gen_server:call(Name, address).
 
 %%
 %% lists vnode allocated by key
--spec(whois/2 :: (pg(), key()) -> [{integer()}]).
+-spec whois(pg(), key()) -> [{integer()}].
 
 whois(Name, Key) ->
    gen_server:call(Name, {whois, Key}).
 
 %%
 %% join process to topology
--spec(join/1 :: (pg()) -> ok | {error, any()}).
--spec(join/2 :: (pg(), pid()) -> ok | {error, any()}).
--spec(join/3 :: (pg(), key(), pid()) -> ok | {error, any()}).
+-spec join(pg()) -> ok | {error, any()}.
+-spec join(pg(), pid()) -> ok | {error, any()}.
+-spec join(pg(), key(), pid()) -> ok | {error, any()}.
 
 join(Name) ->
    join(Name, erlang:node(), self()).
@@ -159,8 +159,8 @@ join(Name, Node, Pid) ->
 
 %%
 %% leave process from topology
--spec(leave/1 :: (pg()) -> ok | {error, any()}).
--spec(leave/2 :: (pg(), key() | pid()) -> ok | {error, any()}).
+-spec leave(pg()) -> ok | {error, any()}.
+-spec leave(pg(), key() | pid()) -> ok | {error, any()}.
 
 leave(Name) ->
    leave(Name, self()).
@@ -170,21 +170,21 @@ leave(Name, Key) ->
 
 %%
 %% return list of N predecessors processes
--spec(predecessors/2 :: (pg(), key()) -> [vnode()]).
+-spec predecessors(pg(), key()) -> [vnode()].
 
 predecessors(Name, Key) ->
    gen_server:call(Name, {predecessors, Key}).
 
 %%
 %% return list of N successors processes
--spec(successors/2 :: (pg(), key()) -> [vnode()]).
+-spec successors(pg(), key()) -> [vnode()].
 
 successors(Name, Key) ->
    gen_server:call(Name, {successors, Key}).
 
 %%
 %% return vnode attribute
--spec(vnode/2 :: (atom(), vnode()) -> any()).
+-spec vnode(atom(), vnode()) -> any().
 
 vnode(type, Vnode) -> erlang:element(1, Vnode);
 vnode(ring, Vnode) -> erlang:element(2, Vnode);
