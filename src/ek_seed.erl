@@ -49,7 +49,7 @@ init([Seed, Timeout]) ->
    _ = erlang:send(self(), seed),
    {ok, 
       #srv{
-         seed = [X || X <- Seed, X =/= erlang:node()]
+         seed = [X || X <- sysenv_seed() ++ Seed, X =/= erlang:node()]
         ,tts  = Timeout
       }
    }.
@@ -94,6 +94,18 @@ code_change(_Vsn, State, _) ->
 %%% private
 %%%
 %%%----------------------------------------------------------------------------   
+
+%%
+sysenv_seed() ->
+   sysenv_seed(os:getenv("EK_SEED", [])).
+
+sysenv_seed([]) ->
+   [];
+sysenv_seed(Env) ->
+   lists:map(
+      fun(X) -> erlang:list_to_atom(X) end,
+      string:tokens(Env, ",")
+   ).
 
 %%
 seed_cluster(Known, Seed) ->
