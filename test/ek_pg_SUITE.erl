@@ -73,7 +73,7 @@ ek_peers_discovery(_) ->
 
 ek_process_join(_) ->
    {ok, _} = ek:create(pg_join),
-   ek_pending_peers(pg_peers, ?CLUSTER - 1, 5),
+   ek_pending_peers(pg_join, ?CLUSTER - 1, 5),
    ct:pal("==> ~p~n", [ek:peers(pg_join)]),
 
    ek:join(pg_join),   
