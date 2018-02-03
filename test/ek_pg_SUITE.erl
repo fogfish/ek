@@ -73,9 +73,10 @@ ek_peers_discovery(_) ->
 
 ek_process_join(_) ->
    {ok, _} = ek:create(pg_join),
-   ek_pending_peers(pg_join, ?CLUSTER - 1, 5),
+   ek_pending_peers(pg_peers, ?CLUSTER - 1, 5),
+   ct:pal("==> ~p~n", [ek:peers(pg_join)]),
 
-   ek:join(pg_join),
+   ek:join(pg_join),   
    ek_pending_members(pg_join, ?CLUSTER, 5),
    ct:pal("==> ~p~n", [ek:members(pg_join)]),
 
@@ -83,8 +84,9 @@ ek_process_join(_) ->
    ?CLUSTER = length(ek:members(pg_join)),
    ?NODES   = lists:sort(ek:address(pg_join)),
 
-   %% @todo recv join
-
+   Peers    = lists:sort(ek:peers(pg_join)),
+   Peers    = lists:sort(ek_recv_join(?CLUSTER - 1)),
+   
    timer:sleep(1000).
 
 
@@ -117,6 +119,18 @@ ek_pending_with(Fun, N, T) ->
          ek_pending_with(Fun, N, T - 1);
       _ ->
          ok
+   end.
+
+%%
+%%
+ek_recv_join(0) ->
+   [];
+ek_recv_join(N) ->
+   receive
+      {join, Addr, _Pid} ->
+         [Addr | ek_recv_join(N - 1)]
+   after 1000 ->
+      exit(timeout)
    end.
 
 

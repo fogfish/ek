@@ -155,11 +155,12 @@ peerdown(Node, #state{name = Name, peers = Peers, processes = Pids0} = State) ->
       Ref ->
          ?DEBUG("ek: pg ~s peerdown ~s~n", [Name, Node]),
          erlang:demonitor(Ref, [flush]),
+         %% unconditionally forget all processes from this node
          Pids1 = crdts_orset:filter(
             fun({Pid, Addr}) ->
                case erlang:node(Pid) of
                   Node ->
-                     send_to_local({leave, Pid, Addr}, State),
+                     send_to_local({leave, Addr, Pid}, State),
                      false;
                   _ ->
                      true
@@ -210,9 +211,11 @@ join(Addr, Pid, #state{watchdogs = Refs0, processes = Pids0} = State0) ->
    Refs1  = bst:insert(Pid, erlang:monitor(process, Pid), Refs0),
    Pids1  = crdts_orset:insert({Pid, Addr}, Pids0),
    State1 = State0#state{watchdogs = Refs1, processes = Pids1},
+   [Pid ! {join, AddrX, PidX} || {PidX, AddrX} <- crdts_orset:value(Pids0)],
    send_to_local({join, Addr, Pid}, State0),
    reconcile(State1),
    State1.
+
 
 %%
 %%
