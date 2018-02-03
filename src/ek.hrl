@@ -13,7 +13,7 @@
 %%   See the License for the specific language governing permissions and
 %%   limitations under the License.
 %%
-% -define(CONFIG_DEBUG, true).
+-define(CONFIG_DEBUG, true).
 
 %% default seed timeout
 -define(CONFIG_SEED_INTERVAL,  60000).
