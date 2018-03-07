@@ -39,15 +39,16 @@ BB      = ../basho_bench
 
 ## erlang runtime configration flags
 ROOT   = $(shell pwd)
-ADDR   = 127.0.0.1
+ADDR   = localhost.localdomain
 EFLAGS = \
 	-name ${APP}@${ADDR} \
+	-proto_dist ek \
+   -start_epmd false \
+	-epmd_module ek_dist_registry \
 	-setcookie ${COOKIE} \
 	-pa ${ROOT}/_build/default/lib/*/ebin \
 	-pa ${ROOT}/_build/default/lib/*/priv \
 	-pa ${ROOT}/rel \
-	-kernel inet_dist_listen_min 32100 \
-	-kernel inet_dist_listen_max 32199 \
 	+P 1000000 \
 	+K true +A 160 -sbt ts
 
