@@ -40,11 +40,9 @@ BB      = ../basho_bench
 ## erlang runtime configration flags
 ROOT   = $(shell pwd)
 ADDR   = localhost.localdomain
+#ADDR   = $(shell hostname)
 EFLAGS = \
 	-name ${APP}@${ADDR} \
-	-proto_dist ek \
-   -start_epmd false \
-	-epmd_module ek_dist_registry \
 	-setcookie ${COOKIE} \
 	-pa ${ROOT}/_build/default/lib/*/ebin \
 	-pa ${ROOT}/_build/default/lib/*/priv \

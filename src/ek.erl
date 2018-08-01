@@ -77,8 +77,10 @@ seed(Seed, Timeout) ->
 %%
 %% create process topology manager 
 %%  Options
-%%   {type,      atom()} - type of topology
-%%   {quorum, integer()} - topology quorum requirements
+%%   {type,      atom()} - type of topology, default process group
+%%   {n,      integer()} - number of replicas
+
+
 %%
 %% The topology notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
@@ -128,18 +130,21 @@ members(Name) ->
 
 size(Name) ->
    gen_server:call(Name, size).
-   
+ 
 
 %%
-%% list addresses managed by topology 
--spec address(pg()) -> [integer()].
+%% list addresses managed by topology
+%% returns
+%%   pg - list of keys within topology
+%%   ns - list of vnode addresses
+-spec address(pg()) -> [_].
 
 address(Name) ->
 	gen_server:call(Name, address).
 
 %%
 %% lists vnode allocated by key
--spec whois(pg(), key()) -> [{integer()}].
+-spec whois(pg(), key()) -> [vnode()].
 
 whois(Name, Key) ->
    gen_server:call(Name, {whois, Key}).
@@ -154,8 +159,8 @@ join(Name) ->
    join(Name, erlang:node(), self()).
 join(Name, Pid) ->
    join(Name, erlang:node(), Pid).
-join(Name, Node, Pid) ->
-   gen_server:call(Name, {join, Node, Pid}).
+join(Name, VNode, Pid) ->
+   gen_server:call(Name, {join, VNode, Pid}).
 
 %%
 %% leave process from topology

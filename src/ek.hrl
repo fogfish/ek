@@ -29,3 +29,19 @@
 -else.
    -define(DEBUG(Str, Args), ok).
 -endif.
+
+%%
+%% 
+-record(primary, {
+   ring = undefined :: atom(),
+   addr = undefined :: integer(),
+   node = undefined :: binary(),
+   peer = undefined :: pid()
+}).
+
+-record(handoff, {
+   ring = undefined :: atom(),
+   addr = undefined :: integer(),
+   node = undefined :: binary(),
+   peer = undefined :: pid()
+}).
