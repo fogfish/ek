@@ -13,12 +13,8 @@
 %%   See the License for the specific language governing permissions and
 %%   limitations under the License.
 %%
-%% @description
+%% @doc
 %%   Erlang clustering utility
-%%
-%% @todo
-%%  * auto discovery of ring config
-%%  * drop quorum
 -module(ek).
 -include("ek.hrl").
 
@@ -34,22 +30,21 @@
    pg/2,
    peers/1,
    members/1,
+   join/1,
+   join/2,
+   join/3,
+   leave/1,
+   leave/2
+]).
 
-   router/3
-
-
-
-  ,address/1
-  ,whois/2
-  ,join/1
-  ,join/2
-  ,join/3
-  ,leave/1
-  ,leave/2
-  ,predecessors/2
-  ,successors/2
-  ,vnode/2
-  ,vnode/3
+-export([
+   router/3,
+   successors/2,
+   predecessors/2,
+   whois/2,
+   address/1,
+   vnode/2,
+   vnode/3
 ]).
 
 %%

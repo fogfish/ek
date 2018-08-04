@@ -88,7 +88,7 @@ join(Vnode, Pid, #state{routes = Routes, peers = Peers} = State) ->
 
 %%
 %%
-handoff(Vnode, Pid, #state{peers = Peers} = State) ->
+handoff(Vnode, _Pid, #state{peers = Peers} = State) ->
    State#state{
       peers = bst:insert(Vnode, undefined, Peers)
    }.
@@ -96,7 +96,7 @@ handoff(Vnode, Pid, #state{peers = Peers} = State) ->
 
 %%
 %%
-leave(Vnode, Pid, #state{routes = Routes, peers = Peers} = State) ->
+leave(Vnode, _Pid, #state{routes = Routes, peers = Peers} = State) ->
    State#state{
       routes = ring:leave(Vnode, Routes),
       peers  = bst:remove(Vnode, Peers)

@@ -106,7 +106,7 @@ handle({gossip, After, With}, _, #state{} = State) ->
 handle({reconcile, Remote}, _, #state{} = State) ->
    {next_state, handle, gossip_reconcile(Remote, State)};
 
-handle(members, Pipe, #state{processes = Pids} = State) ->
+handle(members, _, #state{processes = Pids} = State) ->
    {reply, crdts_orset:value(Pids), State}.
 
 
@@ -244,7 +244,7 @@ gossip_schedule(Timeout, With) ->
 gossip_exchange(With, #state{id = Id, processes = Pids} = State) ->
    [erlang:send({Id, Peer}, {reconcile, Pids}) || Peer <- gossip_with(With, State)].
 
-gossip_with(N, #state{peers = Peers} = State) ->
+gossip_with(N, #state{peers = Peers}) ->
    gossip_with_peers(N, bst:keys(Peers)).
 
 gossip_with_peers(_, []) ->
@@ -253,7 +253,7 @@ gossip_with_peers(N, Peers) ->
    lists:usort(
       lists:map(
          fun(_) ->
-            lists:nth(random:uniform(length(Peers)), Peers)
+            lists:nth(rand:uniform(length(Peers)), Peers)
          end,
          lists:seq(1, N)
       )
@@ -261,7 +261,7 @@ gossip_with_peers(N, Peers) ->
 
 %%
 %%
-gossip_reconcile(Remote, #state{id = Id, processes = Local} = State) ->
+gossip_reconcile(Remote, #state{processes = Local} = State) ->
    gossip_reconcile_sub(diff(Local, Remote), State),
    gossip_reconcile_add(diff(Remote, Local), State),
    State#state{processes = crdts_orset:join(Remote, Local)}.
