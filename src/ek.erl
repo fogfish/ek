@@ -23,16 +23,22 @@
 -include("ek.hrl").
 
 -export([start/0]).
+
 -export([
-   seed/1
-  ,seed/2
+   seed/1,
+   seed/2
 ]).
+
 -export([
-   create/1
-  ,create/2
-  ,peers/1 
-  ,members/1  
-  ,size/1
+   pg/1,
+   pg/2,
+   peers/1,
+   members/1,
+
+   router/3
+
+
+
   ,address/1
   ,whois/2
   ,join/1
@@ -63,6 +69,7 @@ start() ->
    application:start(ek).
 -endif.
 
+
 %%
 %% seed cluster nodes
 -spec seed([node()]) -> {ok, pid()} | {error, any()}.
@@ -74,83 +81,47 @@ seed(Seed) ->
 seed(Seed, Timeout) ->
    ek_sup:start_child(worker, erlang:make_ref(), ek_seed, [Seed, Timeout]).
 
+
 %%
-%% create process topology manager 
+%% create process group
 %%  Options
-%%   {type,      atom()} - type of topology, default process group
-%%   {n,      integer()} - number of replicas
-
-
+%%    {gossip,   integer()} - gossip timeout 
+%%    {exchange, integer()} - number of nodes to exchange gossip
 %%
-%% The topology notifiers all processes on membership changes
+%% The process group notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
-%%   {handoff, key()} - process temporary failed  
-%%   {leave,   key()} - process left topology 
--spec create(atom()) -> {ok, pid()}.
--spec create(atom(), list()) -> {ok, pid()}.
+%%   {handoff, key(), pid()} - process temporary failed  
+%%   {leave,   key(), pid()} - process left topology 
+-spec pg(atom()) -> {ok, pid()}.
+-spec pg(atom(), list()) -> {ok, pid()}.
 
-create(Name) ->
-   create(Name, [{type, pg}]).
+pg(Name) ->
+   pg(Name, []).
 
-create(Name, Opts) ->
-   case lists:keyfind(type, 1, Opts) of
-      false ->
-         create(ek_pg, Name, Opts);
-      {type, pg} ->
-         create(ek_pg, Name, Opts);
-      {type,  _} ->
-         create(ek_ns, Name, Opts)
-   end.
-
-create(Mod, Name, Opts) ->
+pg(Name, Opts) ->
    case whereis(Name) of
       undefined -> 
-         ek_sup:start_child(worker, Name, Mod, [Name, Opts]);
+         ek_sup:start_child(worker, Name, ek_pg, [Name, Opts]);
       Pid ->
          {ok, Pid}
    end.
 
 %%
-%% list topology peers, Erlang nodes running same topology manager
+%% list group peers, Erlang nodes running same group
 -spec peers(pg()) -> [node()].
 
 peers(Name) -> 
-	gen_server:call(Name, peers).
+   gen_server:call(Name, peers).
 
 %%
 %% list all topology members (processes)
 -spec members(pg()) -> [{key(), pid()}].
 
 members(Name) ->
-	gen_server:call(Name, members).
+   gen_server:call(Name, members).
 
 %%
-%% return size of topology
--spec size(pg()) -> integer().
-
-size(Name) ->
-   gen_server:call(Name, size).
- 
-
-%%
-%% list addresses managed by topology
-%% returns
-%%   pg - list of keys within topology
-%%   ns - list of vnode addresses
--spec address(pg()) -> [_].
-
-address(Name) ->
-	gen_server:call(Name, address).
-
-%%
-%% lists vnode allocated by key
--spec whois(pg(), key()) -> [vnode()].
-
-whois(Name, Key) ->
-   gen_server:call(Name, {whois, Key}).
-
-%%
-%% join process to topology
+%% join process to group
 -spec join(pg()) -> ok | {error, any()}.
 -spec join(pg(), pid()) -> ok | {error, any()}.
 -spec join(pg(), key(), pid()) -> ok | {error, any()}.
@@ -163,7 +134,7 @@ join(Name, VNode, Pid) ->
    gen_server:call(Name, {join, VNode, Pid}).
 
 %%
-%% leave process from topology
+%% leave process from group
 -spec leave(pg()) -> ok | {error, any()}.
 -spec leave(pg(), key() | pid()) -> ok | {error, any()}.
 
@@ -173,6 +144,29 @@ leave(Name, Key) ->
    gen_server:call(Name, {leave, Key}).
 
 
+
+%%
+%% create routing table and bind it with a process group
+%% Options
+%%   {m,    integer()}  - ring module power of 2 is required
+%%   {n,    integer()}  - number of replicas
+%%   {q,    integer()}  - number of shard 
+%%   {hash, md5 | sha1} - ring hashing algorithm
+router(Name, With, Opts) ->
+   case whereis(Name) of
+      undefined -> 
+         ek_sup:start_child(worker, Name, ek_router, [Name, With, Opts]);
+      Pid ->
+         {ok, Pid}
+   end.
+
+%%
+%% return list of N successors processes
+-spec successors(pg(), key()) -> [vnode()].
+
+successors(Name, Key) ->
+   gen_server:call(Name, {successors, Key}).
+
 %%
 %% return list of N predecessors processes
 -spec predecessors(pg(), key()) -> [vnode()].
@@ -181,11 +175,20 @@ predecessors(Name, Key) ->
    gen_server:call(Name, {predecessors, Key}).
 
 %%
-%% return list of N successors processes
--spec successors(pg(), key()) -> [vnode()].
+%% lists vnode allocated by key
+-spec whois(pg(), key()) -> [vnode()].
 
-successors(Name, Key) ->
-   gen_server:call(Name, {successors, Key}).
+whois(Name, Key) ->
+   gen_server:call(Name, {whois, Key}).
+
+ 
+%%
+%% list addresses managed by router
+-spec address(pg()) -> [_].
+
+address(Name) ->
+   gen_server:call(Name, address).
+
 
 %%
 %% return vnode attribute
