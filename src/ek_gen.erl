@@ -7,7 +7,7 @@
 -compile({parse_transform, category}).
 
 -export([
-   start_link/3,
+   start_link/2,
    init/1,
    free/2,
    handle/3
@@ -17,12 +17,9 @@
 %%
 -record(state, {
    id        = undefined :: atom(),        %% globally unique identity of topology
-   mod       = undefined :: atom(),        %% topology controller module
-   n         = undefined :: integer(),     %% number of shards 
    peers     = undefined :: _,             %% remote peers
    processes = undefined :: crdts:orset(), %% global process set
-   watchdogs = undefined :: _,             %% local process watchdogs
-   topology  = undefined :: _              %% custom topology state
+   watchdogs = undefined :: _              %% local process watchdogs
 }).
 
 %%%------------------------------------------------------------------
@@ -31,32 +28,25 @@
 %%%
 %%%------------------------------------------------------------------   
 
-start_link(Id, Mod, Opts) ->
-   pipe:start_link({local, Id}, ?MODULE, [Id, Mod, Opts], []).
+start_link(Id, Opts) ->
+   pipe:start_link({local, Id}, ?MODULE, [Id, Opts], []).
 
 %%
-init([Id, Mod, Opts]) ->
-   [either || 
-      net_kernel:monitor_nodes(true),
-      State <- empty(Id, Mod, Opts),
-      cast_to_peers({peerup, erlang:node()}, State),
-      gossip_schedule(
-         proplists:get_value(gossip,   Opts, ?CONFIG_GOSSIP_TIMEOUT),
-         proplists:get_value(exchange, Opts, ?CONFIG_GOSSIP_EXCHANGE)
-      ),
-      cats:unit(handle, State)
-   ].
-
-empty(Id, Mod, Opts) ->
-   {ok, #state{
-      id        = Id,
-      mod       = Mod,
-      n         = proplists:get_value(n, Opts, 3),
-      peers     = bst:new(),
-      processes = crdts_orset:new(),
-      watchdogs = bst:new(),
-      topology  = Mod:init(Id, Opts)
-   }}.
+init([Id, Opts]) ->
+   ok = net_kernel:monitor_nodes(true),
+   [erlang:send({Id, Peer}, {peerup, erlang:node()}) || Peer <- erlang:nodes()],
+   gossip_schedule(
+      proplists:get_value(gossip,   Opts, ?CONFIG_GOSSIP_TIMEOUT),
+      proplists:get_value(exchange, Opts, ?CONFIG_GOSSIP_EXCHANGE)
+   ),
+   {ok, handle,
+      #state{
+         id        = Id,
+         peers     = bst:new(),
+         processes = crdts_orset:new(),
+         watchdogs = bst:new()
+      }
+   }.
 
 %%
 free(_Reason, _State) ->
@@ -83,25 +73,20 @@ handle({'DOWN', _Ref, process, {Id, Node}, _Reason}, _, #state{id = Id} = State)
 handle({nodedown, Node}, _, State) ->
    {next_state, handle, peerdown(Node, State)};
 
-handle(peers, Pipe, #state{peers = Peers} = State) ->
-   pipe:ack(Pipe, bst:keys(Peers)),
-   {next_state, handle, State};
+handle(peers, _, #state{peers = Peers} = State) ->
+   {reply, bst:keys(Peers), State};
 
 %%
-%% actor management
+%% virtual node management
 %%
-handle({join, VNode, Pid}, Pipe, State) ->
-   State1 = join(VNode, Pid, State),
-   pipe:ack(Pipe, ok),
-   {next_state, handle, State1};
+handle({join, Vnode, Pid}, _, State) ->
+   {reply, ok, join(Vnode, Pid, State)};
 
-handle({leave, Pid}, Pipe, State0) ->
-   State1 = leave(Pid, State0),
-   pipe:ack(Pipe, ok),
-   {next_state, handle, State1};
+handle({leave, Vnode}, _, State) ->
+   {reply, ok, leave(Vnode, State)};
 
 handle({'DOWN', _Ref, process, Pid, _Reason}, _, State) ->
-   {next_state, handle, leave(Pid, State)};
+   {next_state, handle, handoff(Pid, State)};
 
 handle({gossip, After, With}, _, #state{} = State) ->
    gossip_exchange(With, State),
@@ -112,28 +97,7 @@ handle({reconcile, Remote}, _, #state{} = State) ->
    {next_state, handle, gossip_reconcile(Remote, State)};
 
 handle(members, Pipe, #state{processes = Pids} = State) ->
-   pipe:ack(Pipe, crdts_orset:value(Pids)),
-   {next_state, handle, State};
-
-handle(size, Pipe, #state{processes = Pids} = State) ->
-   pipe:ack(Pipe, length(crdts_orset:value(Pids))),
-   {next_state, handle, State};
-
-handle(address, Pipe, #state{processes = Pids, mod = Mod, topology = Topo} = State) ->
-   pipe:ack(Pipe, Mod:address(Pids, Topo)),
-   {next_state, handle, State};
-
-handle({whois, Key}, Pipe, #state{processes = Pids, mod = Mod, topology = Topo} = State) ->
-   pipe:ack(Pipe, Mod:whois(Key, Pids, Topo)),
-   {next_state, handle, State};
-
-handle({predecessors, Key}, Pipe, #state{processes = Pids, mod = Mod, n = N, topology = Topo} = State) ->
-   pipe:ack(Pipe, Mod:predecessors(N, Key, Pids, Topo)),
-   {next_state, handle, State};
-
-handle({successors, Key}, Pipe, #state{processes = Pids, mod = Mod, n = N, topology = Topo} = State) ->
-   pipe:ack(Pipe, Mod:successors(N, Key, Pids, Topo)),
-   {next_state, handle, State}.
+   {reply, crdts_orset:value(Pids), State}.
 
 
 %%%------------------------------------------------------------------
@@ -152,47 +116,47 @@ nodeup(Node, #state{id = Id} = State) ->
 
 %%
 %%
-peerup(Node, #state{peers = Peers} = State) ->
-   case bst:lookup(Node, Peers) of
+peerup(Peer, #state{peers = Peers} = State) ->
+   case bst:lookup(Peer, Peers) of
       undefined ->
-         peerup_append_peer(Node, State);
+         peerup_append(Peer, State);
       _ ->
          State
    end.
 
-peerup_append_peer(Node, #state{id = Id, peers = Peers} = State) ->
-   ?DEBUG("ek: topology ~s peerup ~s~n", [Id, Node]),
-   Ref = erlang:monitor(process, {Id, Node}),
-   send_to_peers(Node, {peerup, erlang:node()}, State),
-   State#state{peers = bst:insert(Node, Ref, Peers)}.
+peerup_append(Peer, #state{id = Id, peers = Peers} = State) ->
+   ?DEBUG("ek: topology ~s peerup ~s~n", [Id, Peer]),
+   Ref = erlang:monitor(process, {Id, Peer}),
+   erlang:send({Id, Peer}, {peerup, erlang:node()}),
+   State#state{peers = bst:insert(Peer, Ref, Peers)}.
 
 
 %%
 %%
-peerdown(Node, #state{peers = Peers} = State) ->
-   case bst:lookup(Node, Peers) of
+peerdown(Peer, #state{peers = Peers} = State) ->
+   case bst:lookup(Peer, Peers) of
       undefined ->
          State;
       Ref ->
-         peerdown_forget_processes(Node,
-            peerdown_remove_peer(Node, Ref, State)
+         peerdown_handoff(Peer,
+            peerdown_remove(Peer, Ref, State)
          )
    end.
 
-peerdown_remove_peer(Node, Ref, #state{id = Id, peers = Peers} = State) ->
-   ?DEBUG("ek: topology ~s peerdown ~s~n", [Id, Node]),
+peerdown_remove(Peer, Ref, #state{id = Id, peers = Peers} = State) ->
+   ?DEBUG("ek: topology ~s peerdown ~s~n", [Id, Peer]),
    erlang:demonitor(Ref, [flush]),
-   State#state{peers = bst:remove(Node, Peers)}.
+   State#state{peers = bst:remove(Peer, Peers)}.
 
-peerdown_forget_processes(Node, #state{processes = Pids} = State) ->
+peerdown_handoff(Peer, #state{processes = Pids} = State) ->
    % death of node requires unconditional removal of all its processes
    % dead nodes do not run reconciliation process
    State#state{
       processes = crdts_orset:filter(
-         fun({VNode, Pid}) ->
+         fun({Vnode, Pid}) ->
             case erlang:node(Pid) of
-               Node ->
-                  send_to_local({leave, VNode, Pid}, State),
+               Peer ->
+                  send_to_local({handoff, Vnode, Pid}, State),
                   false;
                _ ->
                   true
@@ -204,41 +168,61 @@ peerdown_forget_processes(Node, #state{processes = Pids} = State) ->
 
 %%
 %%
-join(VNode, Pid, #state{processes = Pids} = State) ->
-   case lists:keyfind(Pid, 2, crdts_orset:value(Pids)) of
+join(Vnode, Pid, #state{processes = Pids} = State) ->
+   case lists:keyfind(Vnode, 1, crdts_orset:value(Pids)) of
       false ->
-         join_vnode(VNode, Pid, State);
+         join_vnode(Vnode, Pid, State);
       _ ->
          State
    end.
 
-join_vnode(VNode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0) ->
+join_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State) ->
    Refs1  = bst:insert(Pid, erlang:monitor(process, Pid), Refs0),
-   Pids1  = crdts_orset:insert({VNode, Pid}, Pids0),
-   State1 = State0#state{watchdogs = Refs1, processes = Pids1},
-   [Pid ! {join, VNodeEx, PidEx} || {VNodeEx, PidEx} <- crdts_orset:value(Pids0)],
-   send_to_local({join, VNode, Pid}, State0),
-   State1.
-
+   Pids1  = crdts_orset:insert({Vnode, Pid}, Pids0),
+   [Pid ! {join, VnodeEx, PidEx} || {VnodeEx, PidEx} <- crdts_orset:value(Pids0)],
+   send_to_local({join, Vnode, Pid}, State),
+   State#state{watchdogs = Refs1, processes = Pids1}.
 
 %%
 %%
-leave(Pid, #state{processes = Pids} = State) ->
-   case lists:keyfind(Pid, 2, crdts_orset:value(Pids)) of
-      false ->
-         State;
-      {VNode, _} ->
-         leave_vnode(VNode, Pid, State)
-   end.
+handoff(Pid, #state{processes = Pids} = State) ->
+   lists:foldl(
+      fun({Vnode, _}, Acc) -> handoff_vnode(Vnode, Pid, Acc) end,
+      State,
+      lists:filter(
+         fun({_, X}) -> X =:= Pid end,
+         crdts_orset:value(Pids)
+      )
+   ).
 
-leave_vnode(VNode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0) ->
-   Pids1  = crdts_orset:remove({VNode, Pid}, Pids0),
+handoff_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0) ->
+   Pids1  = crdts_orset:remove({Vnode, Pid}, Pids0),
    Ref    = bst:lookup(Pid, Refs0),
     _     = erlang:demonitor(Ref, [flush]),
    Refs1  = bst:remove(Pid, Refs0),
    State1 = State0#state{watchdogs = Refs1, processes = Pids1},
-   send_to_local({leave, VNode, Pid}, State1),
+   send_to_local({handoff, Vnode, Pid}, State1),
    State1.
+
+%%
+%%
+leave(Vnode, #state{processes = Pids} = State) ->
+   case lists:keyfind(Vnode, 1, crdts_orset:value(Pids)) of
+      false ->
+         State;
+      {_, Pid} ->
+         leave_vnode(Vnode, Pid, State)
+   end.
+
+leave_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0) ->
+   Pids1  = crdts_orset:remove({Vnode, Pid}, Pids0),
+   Ref    = bst:lookup(Pid, Refs0),
+    _     = erlang:demonitor(Ref, [flush]),
+   Refs1  = bst:remove(Pid, Refs0),
+   State1 = State0#state{watchdogs = Refs1, processes = Pids1},
+   send_to_local({leave, Vnode, Pid}, State1),
+   State1.
+
 
 %%
 %%
@@ -268,31 +252,29 @@ gossip_with_peers(N, Peers) ->
 %%
 %%
 gossip_reconcile(Remote, #state{id = Id, processes = Local} = State) ->
-   gossip_reconcile_sub(diff(Local, Remote), Remote, State),
-   gossip_reconcile_add(diff(Remote, Local), Remote, State),
+   gossip_reconcile_sub(diff(Local, Remote), State),
+   gossip_reconcile_add(diff(Remote, Local), State),
    State#state{processes = crdts_orset:join(Remote, Local)}.
 
 
-gossip_reconcile_sub([], _, _State) ->
+gossip_reconcile_sub([], _State) ->
    ok;
-gossip_reconcile_sub(Pids, _, #state{id = Id, processes = Local} = State) ->
+gossip_reconcile_sub(Pids, #state{id = Id} = State) ->
    ?DEBUG("ek: topology ~s [-] ~p~n", [Id, Pids]),
    lists:foreach(
-      fun(Pid) ->
-         Addr = orddict:fetch(Pid, crdts_orset:value(Local)),
-         send_to_local({leave, Addr, Pid}, State)
+      fun({Vnode, Pid}) ->
+         send_to_local({handoff, Vnode, Pid}, State)
       end,
       Pids
    ).
 
-gossip_reconcile_add([], _, _State) ->
+gossip_reconcile_add([], _State) ->
    ok;
-gossip_reconcile_add(Pids, Remote, #state{id = Id} = State) ->
+gossip_reconcile_add(Pids, #state{id = Id} = State) ->
    ?DEBUG("ek: topology ~s [+] ~p~n", [Id, Pids]),
    lists:foreach(
-      fun(Pid) ->
-         Addr = orddict:fetch(Pid, crdts_orset:value(Remote)),
-         send_to_local({join, Addr, Pid}, State)
+      fun({Vnode, Pid}) ->
+         send_to_local({join, Vnode, Pid}, State)
       end,
       Pids
    ).
@@ -300,12 +282,12 @@ gossip_reconcile_add(Pids, Remote, #state{id = Id} = State) ->
 %%
 %% Returns only the elements of SetA that are not also elements of SetB.
 diff(OrSetA, OrSetB) ->
-   A = [Pid || 
-      {_VNode, Pid} <- crdts_orset:value(OrSetA), 
+   A = [E || 
+      {_, Pid} = E <- crdts_orset:value(OrSetA), 
       erlang:node(Pid) =/= erlang:node()],
 
-   B = [Pid || 
-      {_VNode, Pid} <- crdts_orset:value(OrSetB), 
+   B = [E || 
+      {_, Pid} = E <- crdts_orset:value(OrSetB), 
       erlang:node(Pid) =/= erlang:node()],
 
    gb_sets:to_list(
@@ -317,21 +299,8 @@ diff(OrSetA, OrSetB) ->
 
 %%
 %%
-cast_to_peers(Msg, #state{id = Id}) ->
-   [erlang:send({Id, Node}, Msg) || Node <- erlang:nodes()].
-
-%%
-%%
-send_to_peers(Node, Msg, #state{id = Id}) ->
-   erlang:send({Id, Node}, Msg).
-
-%%
-%%
 send_to_local(Msg, #state{processes = Pids}) ->
    [Pid ! Msg || 
       {_VNode, Pid} <- crdts_orset:value(Pids),
       erlang:node(Pid) =:= erlang:node()
    ].
-
-
-
