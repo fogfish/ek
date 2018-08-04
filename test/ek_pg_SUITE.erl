@@ -17,8 +17,8 @@
 ]).
  
 %% Number of cluster nodes see tests.config 
--define(CLUSTER,  5).
--define(NODES,   ['a@127.0.0.1', 'b@127.0.0.1', 'c@127.0.0.1', 'd@127.0.0.1', 'e@127.0.0.1']).
+-define(CLUSTER,  3).
+-define(NODES,   ['a@localhost.localdomain', 'b@localhost.localdomain', 'c@localhost.localdomain']).
 
 %%%----------------------------------------------------------------------------   
 %%%
@@ -67,12 +67,14 @@ end_per_group(_, _Config) ->
 %%%----------------------------------------------------------------------------   
 
 ek_peers_discovery(_) ->
-   {ok, _} = ek:create(pg_peers),
+   {ok, _} = ek:pg(pg_peers),
    ek_pending_peers(pg_peers, ?CLUSTER - 1, 5),
-   ct:pal("==> ~p~n", [ek:peers(pg_peers)]).
+   ct:pal("==> ~p~n", [ek:peers(pg_peers)]),
+
+   timer:sleep(1000).
 
 ek_process_join(_) ->
-   {ok, _} = ek:create(pg_join),
+   {ok, _} = ek:pg(pg_join, [{gossip, 100}]),
    ek_pending_peers(pg_join, ?CLUSTER - 1, 5),
    ct:pal("==> ~p~n", [ek:peers(pg_join)]),
 
@@ -80,9 +82,8 @@ ek_process_join(_) ->
    ek_pending_members(pg_join, ?CLUSTER, 5),
    ct:pal("==> ~p~n", [ek:members(pg_join)]),
 
-   ?CLUSTER = ek:size(pg_join),
    ?CLUSTER = length(ek:members(pg_join)),
-   ?NODES   = lists:sort(ek:address(pg_join)),
+   ?NODES   = lists:sort([Node || {Node, _} <- ek:members(pg_join)]),
 
    Peers    = lists:sort(ek:peers(pg_join)),
    Peers    = lists:sort(ek_recv_join(?CLUSTER - 1)),
