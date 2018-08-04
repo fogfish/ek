@@ -9,6 +9,7 @@
 -export([
    start_link/2,
    init/1,
+   ioctl/2,
    free/2,
    handle/3
 ]).
@@ -17,6 +18,7 @@
 %%
 -record(state, {
    id        = undefined :: atom(),        %% globally unique identity of topology
+   eventbus  = undefined :: pid(),         %% event bus       
    peers     = undefined :: _,             %% remote peers
    processes = undefined :: crdts:orset(), %% global process set
    watchdogs = undefined :: _              %% local process watchdogs
@@ -33,6 +35,7 @@ start_link(Id, Opts) ->
 
 %%
 init([Id, Opts]) ->
+   {ok, EventBus} = gen_event:start_link(),
    ok = net_kernel:monitor_nodes(true),
    [erlang:send({Id, Peer}, {peerup, erlang:node()}) || Peer <- erlang:nodes()],
    gossip_schedule(
@@ -42,6 +45,7 @@ init([Id, Opts]) ->
    {ok, handle,
       #state{
          id        = Id,
+         eventbus  = EventBus,
          peers     = bst:new(),
          processes = crdts_orset:new(),
          watchdogs = bst:new()
@@ -51,6 +55,10 @@ init([Id, Opts]) ->
 %%
 free(_Reason, _State) ->
    ok.
+
+%%
+ioctl(eventbus, #state{eventbus = Pid}) ->
+   Pid.
 
 %%%------------------------------------------------------------------
 %%%
@@ -75,6 +83,7 @@ handle({nodedown, Node}, _, State) ->
 
 handle(peers, _, #state{peers = Peers} = State) ->
    {reply, bst:keys(Peers), State};
+
 
 %%
 %% virtual node management
@@ -299,7 +308,8 @@ diff(OrSetA, OrSetB) ->
 
 %%
 %%
-send_to_local(Msg, #state{processes = Pids}) ->
+send_to_local(Msg, #state{processes = Pids, eventbus = EventBus}) ->
+   gen_event:notify(EventBus, Msg),
    [Pid ! Msg || 
       {_VNode, Pid} <- crdts_orset:value(Pids),
       erlang:node(Pid) =:= erlang:node()
