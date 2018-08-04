@@ -7,6 +7,5 @@
 *.tgz
 _build/
 rebar3
-rebar.lock
 deps.config
 *.sublime-*
