@@ -1,0 +1,11 @@
+language: erlang
+dist: trusty
+
+script:
+   - make
+   - make test
+
+otp_release:
+   - 20.1
+   - 20.0
+
