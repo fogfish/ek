@@ -6,7 +6,11 @@
       {registered,  []},
       {applications,[
          kernel
-        ,stdlib
+      ,  stdlib
+      ,  datum
+      ,  pipe
+      ,  feta
+      ,  crdts
       ]},
       {mod, {ek_app, []}},
       {env, []}
