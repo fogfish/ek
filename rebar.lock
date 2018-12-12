@@ -3,20 +3,18 @@
   {git,"https://github.com/fogfish/crdts",
        {ref,"77a9209fdee227dc4837f7b14fa876fcab0a1be7"}},
   0},
- {<<"datum">>,{pkg,<<"datum">>,<<"4.3.5">>},0},
+ {<<"datum">>,{pkg,<<"datum">>,<<"4.5.0">>},0},
  {<<"feta">>,
   {git,"https://github.com/fogfish/feta",
        {ref,"c5d251b3f995b96afd5e8ec7da61516842aa658c"}},
   0},
- {<<"pipe">>,
-  {git,"https://github.com/kfsm/pipe",
-       {ref,"ee3b66b4a9d95b74c026090a2e28d011dd17b004"}},
-  0},
+ {<<"pipe">>,{pkg,<<"pipes">>,<<"2.0.1">>},0},
  {<<"uid">>,
   {git,"https://github.com/fogfish/uid",
        {ref,"698ebcb27b273a2f879d8bd24be5f5ea54c98850"}},
   1}]}.
 [
 {pkg_hash,[
- {<<"datum">>, <<"18DE79DD128A46AC824B3EB3FCB4354BD7E0FBA242CFE1AECA6AB7B79147F785">>}]}
+ {<<"datum">>, <<"0F7F064A509632C70448F9BC7E7295BD5F9CD6E3207863B176416EF14FD19E0C">>},
+ {<<"pipe">>, <<"A2B56796C63690ED0E78BB77BB389AF250BD70AFA15A6869369DBDC11087D68F">>}]}
 ].

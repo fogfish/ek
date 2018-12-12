@@ -17,7 +17,7 @@
 %%
 -record(state, {
    id        = undefined :: atom(),        %% globally unique identity of topology
-   eventbus  = undefined :: [atom()],       %% event bus       
+   eventbus  = undefined :: [atom()],      %% event bus       
    peers     = undefined :: _,             %% remote peers
    processes = undefined :: crdts:orset(), %% global process set
    watchdogs = undefined :: _              %% local process watchdogs
@@ -312,7 +312,7 @@ diff(OrSetA, OrSetB) ->
 %%
 %%
 send_to_local(Msg, #state{processes = Pids, eventbus = EventBus}) ->
-   [Pid ! Msg || Pid <- EventBus],
+   [catch gen_server:call(Pid, Msg, 60000) || Pid <- EventBus],
    [Pid ! Msg || 
       {_VNode, Pid} <- crdts_orset:value(Pids),
       erlang:node(Pid) =:= erlang:node()

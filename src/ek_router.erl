@@ -31,6 +31,7 @@ start_link(Id, With, Opts) ->
 %%
 init([Id, With, Opts]) ->
    pipe:ioctl(With, {attach, Id}),
+   [self() ! {join, Vnode, Peer} || {Vnode, Peer} <- ek:members(With)],
    {ok, handle, 
       #state{
          id     = Id,
@@ -51,13 +52,13 @@ free(_, _) ->
 %%%------------------------------------------------------------------   
 
 handle({join, Vnode, Pid}, _, State) ->
-   {next_state, handle, join(scalar:s(Vnode), Pid, State)};
+   {reply, ok, join(scalar:s(Vnode), Pid, State)};
 
 handle({handoff, Vnode, Pid}, _, State) ->
-   {next_state, handle, handoff(scalar:s(Vnode), Pid, State)};
+   {reply, ok, handoff(scalar:s(Vnode), Pid, State)};
 
 handle({leave, Vnode, Pid}, _, State) ->
-   {next_state, handle, leave(scalar:s(Vnode), Pid, State)};
+   {reply, ok, leave(scalar:s(Vnode), Pid, State)};
 
 handle({successors, Key}, _, State) ->
    {reply, successors(Key, State), State};
