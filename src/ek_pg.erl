@@ -17,6 +17,7 @@
 %%
 -record(state, {
    id        = undefined :: atom(),        %% globally unique identity of topology
+   quorum    = undefined :: integer(),     %% number of online nodes
    eventbus  = undefined :: [atom()],      %% event bus       
    peers     = undefined :: _,             %% remote peers
    processes = undefined :: crdts:orset(), %% global process set
@@ -43,6 +44,7 @@ init([Id, Opts]) ->
    {ok, handle,
       #state{
          id        = Id,
+         quorum    = proplists:get_value(quorum, Opts, #{}),
          eventbus  = [],
          peers     = bst:new(),
          processes = crdts_orset:new(),
@@ -138,7 +140,7 @@ peerup_append(Peer, #state{id = Id, peers = Peers} = State) ->
    ?DEBUG("[ek]: pg ~s peerup ~s~n", [Id, Peer]),
    Ref = erlang:monitor(process, {Id, Peer}),
    erlang:send({Id, Peer}, {peerup, erlang:node()}),
-   State#state{peers = bst:insert(Peer, Ref, Peers)}.
+   peers_quorum(State#state{peers = bst:insert(Peer, Ref, Peers)}).
 
 
 %%
@@ -148,15 +150,17 @@ peerdown(Peer, #state{peers = Peers} = State) ->
       undefined ->
          State;
       Ref ->
-         peerdown_handoff(Peer,
-            peerdown_remove(Peer, Ref, State)
+         vnode_quorum(
+            peerdown_handoff(Peer,
+               peerdown_remove(Peer, Ref, State)
+            )
          )
    end.
 
 peerdown_remove(Peer, Ref, #state{id = Id, peers = Peers} = State) ->
    ?DEBUG("[ek]: pg ~s peerdown ~s~n", [Id, Peer]),
    erlang:demonitor(Ref, [flush]),
-   State#state{peers = bst:remove(Peer, Peers)}.
+   peers_quorum(State#state{peers = bst:remove(Peer, Peers)}).
 
 peerdown_handoff(Peer, #state{processes = Pids} = State) ->
    % death of node requires unconditional removal of all its processes
@@ -178,6 +182,21 @@ peerdown_handoff(Peer, #state{processes = Pids} = State) ->
 
 %%
 %%
+peers_quorum(#state{quorum = #{ peers := Q }, peers = Peers} = State) ->
+   %% Note: itself is not counted as peer
+   case length(bst:keys(Peers)) + 1 of
+      N when N < Q ->
+         send_to_local({quorum, peers, false}, State);
+      N ->
+         send_to_local({quorum, peers,  true}, State)
+   end,
+   State;
+
+peers_quorum(#state{} = State) ->
+   State.
+
+%%
+%%
 join(Vnode, Pid, #state{processes = Pids} = State) ->
    case lists:keyfind(Vnode, 1, crdts_orset:value(Pids)) of
       false ->
@@ -191,7 +210,7 @@ join_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State) ->
    Pids1  = crdts_orset:insert({Vnode, Pid}, Pids0),
    [Pid ! {join, VnodeEx, PidEx} || {VnodeEx, PidEx} <- crdts_orset:value(Pids0)],
    send_to_local({join, Vnode, Pid}, State),
-   State#state{watchdogs = Refs1, processes = Pids1}.
+   vnode_quorum(State#state{watchdogs = Refs1, processes = Pids1}).
 
 %%
 %%
@@ -212,7 +231,7 @@ handoff_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0)
    Refs1  = bst:remove(Pid, Refs0),
    State1 = State0#state{watchdogs = Refs1, processes = Pids1},
    send_to_local({handoff, Vnode, Pid}, State1),
-   State1.
+   vnode_quorum(State1).
 
 %%
 %%
@@ -231,7 +250,22 @@ leave_vnode(Vnode, Pid, #state{processes = Pids0, watchdogs = Refs0} = State0) -
    Refs1  = bst:remove(Pid, Refs0),
    State1 = State0#state{watchdogs = Refs1, processes = Pids1},
    send_to_local({leave, Vnode, Pid}, State1),
-   State1.
+   vnode_quorum(State1).
+
+%%
+%%
+vnode_quorum(#state{quorum = #{ vnode := Q }, processes = Pids} = State) ->
+   case length(crdts_orset:value(Pids)) of
+      N when N < Q ->
+         send_to_local({quorum, vnode, false}, State);
+      N ->
+         send_to_local({quorum, vnode,  true}, State)
+   end,
+   State;
+
+vnode_quorum(#state{} = State) ->
+   State.
+
 
 
 %%
@@ -261,13 +295,14 @@ gossip_with_peers(N, Peers) ->
 
 %%
 %%
-gossip_reconcile(Remote, #state{processes = Local} = State) ->
-   gossip_reconcile_sub(diff(Local, Remote), State),
-   gossip_reconcile_add(diff(Remote, Local), State),
-   State#state{processes = crdts_orset:join(Remote, Local)}.
+gossip_reconcile(Remote, #state{processes = Local} = State0) ->
+   State1 = State0#state{processes = crdts_orset:join(Remote, Local)},
+   gossip_reconcile_sub(diff(Local, Remote), State1),
+   gossip_reconcile_add(diff(Remote, Local), State1),
+   State1.
 
 
-gossip_reconcile_sub([], _State) ->
+gossip_reconcile_sub([], State) ->
    ok;
 gossip_reconcile_sub(Pids, #state{id = Id} = State) ->
    ?DEBUG("[ek]: pg ~s {-} ~p~n", [Id, Pids]),
@@ -276,7 +311,8 @@ gossip_reconcile_sub(Pids, #state{id = Id} = State) ->
          send_to_local({handoff, Vnode, Pid}, State)
       end,
       Pids
-   ).
+   ),
+   vnode_quorum(State).
 
 gossip_reconcile_add([], _State) ->
    ok;
@@ -287,7 +323,8 @@ gossip_reconcile_add(Pids, #state{id = Id} = State) ->
          send_to_local({join, Vnode, Pid}, State)
       end,
       Pids
-   ).
+   ),
+   vnode_quorum(State).
 
 %%
 %% Returns only the elements of SetA that are not also elements of SetB.
@@ -312,6 +349,9 @@ diff(OrSetA, OrSetB) ->
 %%
 %%
 send_to_local(Msg, #state{processes = Pids, eventbus = EventBus}) ->
+   %% Note: sync communication with attached process is required to ensure
+   %%       state consistency (e.g. routing tables) before local peers updated
+   %%       with information about new node 
    [catch gen_server:call(Pid, Msg, 60000) || Pid <- EventBus],
    [Pid ! Msg || 
       {_VNode, Pid} <- crdts_orset:value(Pids),

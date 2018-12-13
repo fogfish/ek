@@ -57,11 +57,11 @@
 %% start application
 -ifdef(CONFIG_DEBUG).
 start() ->
-   application:start(ek).
+   application:ensure_all_started(?MODULE).
 -else.
 start() ->
    error_logger:tty(false),
-   application:start(ek).
+   application:ensure_all_started(?MODULE).
 -endif.
 
 
@@ -82,11 +82,13 @@ seed(Seed, Timeout) ->
 %%  Options
 %%    {gossip,   integer()} - gossip timeout 
 %%    {exchange, integer()} - number of nodes to exchange gossip
+%%    {quorum,   #{peers => integer(), vnode => integer()}} - number of active peers (peers quorum)
 %%
 %% The process group notifiers all processes on membership changes
 %%   {join,    key(), pid()} - process joined topology
 %%   {handoff, key(), pid()} - process temporary failed  
 %%   {leave,   key(), pid()} - process left topology 
+%%   {quorum,  peers | vnode, true | false}
 -spec pg(atom()) -> {ok, pid()}.
 -spec pg(atom(), list()) -> {ok, pid()}.
 

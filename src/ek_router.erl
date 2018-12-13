@@ -51,6 +51,9 @@ free(_, _) ->
 %%%
 %%%------------------------------------------------------------------   
 
+handle({quorum, _, _}, _, State) ->
+   {reply, ok, State};
+
 handle({join, Vnode, Pid}, _, State) ->
    {reply, ok, join(scalar:s(Vnode), Pid, State)};
 
