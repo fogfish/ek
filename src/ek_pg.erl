@@ -30,7 +30,8 @@
 %%%
 %%%------------------------------------------------------------------   
 
-start_link(Id, Opts) ->
+start_link(Id, Opts) 
+ when is_atom(Id) ->
    pipe:start_link({local, Id}, ?MODULE, [Id, Opts], []).
 
 %%
@@ -187,7 +188,7 @@ peers_quorum(#state{quorum = #{ peers := Q }, peers = Peers} = State) ->
    case length(bst:keys(Peers)) + 1 of
       N when N < Q ->
          send_to_local({quorum, peers, false}, State);
-      N ->
+      _ ->
          send_to_local({quorum, peers,  true}, State)
    end,
    State;
@@ -258,7 +259,7 @@ vnode_quorum(#state{quorum = #{ vnode := Q }, processes = Pids} = State) ->
    case length(crdts_orset:value(Pids)) of
       N when N < Q ->
          send_to_local({quorum, vnode, false}, State);
-      N ->
+      _ ->
          send_to_local({quorum, vnode,  true}, State)
    end,
    State;
@@ -303,7 +304,7 @@ gossip_reconcile(Remote, #state{processes = Local} = State0) ->
 
 
 gossip_reconcile_sub([], State) ->
-   ok;
+   State;
 gossip_reconcile_sub(Pids, #state{id = Id} = State) ->
    ?DEBUG("[ek]: pg ~s {-} ~p~n", [Id, Pids]),
    lists:foreach(
@@ -314,8 +315,8 @@ gossip_reconcile_sub(Pids, #state{id = Id} = State) ->
    ),
    vnode_quorum(State).
 
-gossip_reconcile_add([], _State) ->
-   ok;
+gossip_reconcile_add([], State) ->
+   State;
 gossip_reconcile_add(Pids, #state{id = Id} = State) ->
    ?DEBUG("[ek]: pg ~s {+} ~p~n", [Id, Pids]),
    lists:foreach(

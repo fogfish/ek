@@ -64,11 +64,10 @@ start() ->
    application:ensure_all_started(?MODULE).
 -endif.
 
-
 %%
 %% seed cluster nodes
--spec seed([node()]) -> {ok, pid()} | {error, any()}.
--spec seed([node()], timeout()) -> {ok, pid()} | {error, any()}.
+-spec seed([node()]) -> datum:either( pid() ).
+-spec seed([node()], timeout()) -> datum:either( pid() ).
 
 seed(Seed) ->
    seed(Seed, ?CONFIG_SEED_INTERVAL).
@@ -96,11 +95,13 @@ pg(Name) ->
    pg(Name, []).
 
 pg(Name, Opts) ->
-   case whereis(Name) of
-      undefined -> 
-         ek_sup:start_child(worker, Name, ek_pg, [Name, Opts]);
-      Pid ->
-         {ok, Pid}
+   case ek_sup:start_child(worker, Name, ek_pg, [Name, Opts]) of
+      {ok, Pid} -> 
+         {ok, Pid};
+      {error, {already_started, Pid}} ->
+         {ok, Pid};
+      {error, Reason} ->
+         {error, Reason}
    end.
 
 %%

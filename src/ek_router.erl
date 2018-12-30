@@ -25,8 +25,10 @@
 %%%
 %%%------------------------------------------------------------------   
 
-start_link(Id, With, Opts) ->
+start_link(Id, With, Opts)
+ when is_atom(Id) ->
    pipe:start_link({local, Id}, ?MODULE, [Id, With, Opts], []).
+
 
 %%
 init([Id, With, Opts]) ->
