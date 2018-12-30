@@ -151,11 +151,13 @@ leave(Name, Key) ->
 %%   {q,    integer()}  - number of shard 
 %%   {hash, md5 | sha1} - ring hashing algorithm
 router(Name, With, Opts) ->
-   case whereis(Name) of
-      undefined -> 
-         ek_sup:start_child(worker, Name, ek_router, [Name, With, Opts]);
-      Pid ->
-         {ok, Pid}
+   case ek_sup:start_child(worker, Name, ek_router, [Name, With, Opts]) of
+      {ok, Pid} -> 
+         {ok, Pid};
+      {error, {already_started, Pid}} ->
+         {ok, Pid};
+      {error, Reason} ->
+         {error, Reason}
    end.
 
 %%
